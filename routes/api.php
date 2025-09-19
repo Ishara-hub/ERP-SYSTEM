@@ -28,6 +28,16 @@ use App\Http\Controllers\Api\Auth\AuthApiController;
 |
 */
 
+// Test route
+Route::get('/test', function () {
+    return response()->json(['message' => 'API is working!', 'timestamp' => now()]);
+});
+
+// Test route with middleware
+Route::get('/test-middleware', function () {
+    return response()->json(['message' => 'API middleware is working!', 'timestamp' => now()]);
+})->middleware('api');
+
 // Public routes
 Route::post('/auth/login', [AuthApiController::class, 'login']);
 Route::post('/auth/register', [AuthApiController::class, 'register']);
