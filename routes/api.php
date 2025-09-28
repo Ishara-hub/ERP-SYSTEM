@@ -94,6 +94,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Chart of Accounts
     Route::get('/accounts/chart-of-accounts', [ChartOfAccountsApiController::class, 'index']);
+    Route::get('/accounts/parent-accounts', [ChartOfAccountsApiController::class, 'getParentAccounts']);
+    Route::get('/accounts/parent-accounts-by-type', [ChartOfAccountsApiController::class, 'getParentAccountsByType']);
     Route::post('/accounts', [ChartOfAccountsApiController::class, 'store']);
     Route::get('/accounts/{account}', [ChartOfAccountsApiController::class, 'show']);
     Route::put('/accounts/{account}', [ChartOfAccountsApiController::class, 'update']);
