@@ -45,8 +45,12 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('stock_movements', function (Blueprint $table) {
-            $table->dropForeign(['item_id']);
-        });
+        try {
+            Schema::table('stock_movements', function (Blueprint $table) {
+                $table->dropForeign(['item_id']);
+            });
+        } catch (\Exception $e) {
+            // Foreign key might already be dropped; ignore
+        }
     }
 };

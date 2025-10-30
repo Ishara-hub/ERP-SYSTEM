@@ -39,8 +39,17 @@ return new class extends Migration
     {
         // Remove item_id column if it exists
         if (Schema::hasColumn('stock_movements', 'item_id')) {
+            // Drop foreign key if it exists; ignore if already removed by another migration
+            try {
+                Schema::table('stock_movements', function (Blueprint $table) {
+                    $table->dropForeign(['item_id']);
+                });
+            } catch (\Exception $e) {
+                // Foreign key does not exist; continue
+            }
+
+            // Now drop the column
             Schema::table('stock_movements', function (Blueprint $table) {
-                $table->dropForeign(['item_id']);
                 $table->dropColumn('item_id');
             });
         }
