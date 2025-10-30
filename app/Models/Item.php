@@ -217,4 +217,21 @@ class Item extends Model
         $this->total_value = $this->on_hand * $this->cost;
         $this->save();
     }
+
+    /**
+     * Get all item type constants
+     */
+    public static function getConstants(): array
+    {
+        return [
+            self::SERVICE,
+            self::INVENTORY_PART,
+            self::INVENTORY_ASSEMBLY,
+            self::NON_INVENTORY_PART,
+            self::OTHER_CHARGE,
+            self::DISCOUNT,
+            self::GROUP,
+            self::PAYMENT,
+        ];
+    }
 }

@@ -48,6 +48,34 @@ class CustomersApiController extends ApiController
     }
 
     /**
+     * Search customers for autocomplete
+     */
+    public function search(Request $request)
+    {
+        try {
+            $query = $request->get('q', '');
+            
+            if (strlen($query) < 2) {
+                return $this->success(['customers' => []], 'Search query too short');
+            }
+
+            $customers = Customer::where(function ($q) use ($query) {
+                $q->where('name', 'like', '%' . $query . '%')
+                  ->orWhere('email', 'like', '%' . $query . '%')
+                  ->orWhere('phone', 'like', '%' . $query . '%')
+                  ->orWhere('id', 'like', '%' . $query . '%');
+            })
+            ->select('id', 'name', 'email', 'phone', 'address', 'company')
+            ->limit(10)
+            ->get();
+
+            return $this->success(['customers' => $customers], 'Search completed successfully');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to search customers: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)

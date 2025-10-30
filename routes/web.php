@@ -1,20 +1,280 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Web\DashboardController;
+use App\Http\Controllers\Web\UserController;
+use App\Http\Controllers\Web\ChartOfAccountsController;
+use App\Http\Controllers\Web\CustomerController;
+use App\Http\Controllers\Web\ItemController;
+use App\Http\Controllers\Web\SupplierController;
+use App\Http\Controllers\Web\PurchaseOrderController;
+use App\Http\Controllers\Web\PaymentController;
+use App\Http\Controllers\Web\PaymentDashboardController;
+use App\Http\Controllers\Web\EnterBillController;
+use App\Http\Controllers\Web\PayBillController;
+use App\Http\Controllers\Invoices\InvoiceController;
+use App\Http\Controllers\POS\POSController;
+use App\Http\Controllers\SalesOrderController;
+use App\Http\Controllers\QuotationController;
+use App\Http\Controllers\Accounts\GeneralLedgerController;
+use App\Http\Controllers\Accounts\ChartOfAccountsDataController;
+use App\Http\Controllers\Accounts\SubAccountDetailsController;
+use App\Http\Controllers\Accounts\BalanceSheetController;
+use App\Http\Controllers\Accounts\IncomeStatementController;
 
-// Simple welcome route for API backend
-Route::get('/', function () {
+// Test route
+Route::get('/test', function () {
+    return 'Test route working!';
+});
+
+// Test account creation
+Route::get('/test-create-account', function () {
+    try {
+        $account = App\Models\Account::create([
+            'account_code' => 'TEST' . time(),
+            'account_name' => 'Test Account',
+            'account_type' => 'Asset',
+            'description' => 'Test account',
+            'is_active' => true
+        ]);
+        return response()->json(['success' => true, 'account_id' => $account->id]);
+    } catch (Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()]);
+    }
+});
+
+
+// Test accounts route
+Route::get('/test-accounts', function () {
+    $accounts = App\Models\Account::with('parent')->take(5)->get();
     return response()->json([
-        'message' => 'ERP System API Backend',
-        'version' => '1.0.0',
-        'status' => 'running',
-        'endpoints' => [
-            'api' => '/api',
-            'health' => '/up',
-            'documentation' => '/api/documentation'
-        ]
+        'count' => $accounts->count(),
+        'accounts' => $accounts->toArray()
     ]);
-})->name('home');
+});
+
+// Test controller route
+Route::get('/test-controller', [ChartOfAccountsController::class, 'index']);
+
+// Test simple controller
+Route::get('/test-simple', [App\Http\Controllers\Web\TestController::class, 'index']);
+
+// Test customers
+Route::get('/test-customers', function () {
+    try {
+        $count = App\Models\Customer::count();
+        return response()->json(['success' => true, 'customer_count' => $count]);
+    } catch (Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()]);
+    }
+});
+
+// Test customer controller
+Route::get('/test-customer-controller', function() {
+    try {
+        $controller = new App\Http\Controllers\Web\CustomerController();
+        return $controller->index(new Illuminate\Http\Request());
+    } catch (Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+    }
+});
+
+// Simple test route for customers
+Route::get('/test-customers-simple', function() {
+    return 'Customers test route working!';
+});
+
+// Dashboard Route (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+});
+
+// User Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('users', UserController::class);
+});
+
+// Customer Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('customers', CustomerController::class)->names([
+        'index' => 'customers.web.index',
+        'create' => 'customers.web.create',
+        'store' => 'customers.web.store',
+        'show' => 'customers.web.show',
+        'edit' => 'customers.web.edit',
+        'update' => 'customers.web.update',
+        'destroy' => 'customers.web.destroy',
+    ]);
+    Route::post('customers/{customer}/toggle-status', [CustomerController::class, 'toggleStatus'])->name('customers.web.toggle-status');
+});
+
+// Item Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('items', ItemController::class)->names([
+        'index' => 'items.web.index',
+        'create' => 'items.web.create',
+        'store' => 'items.web.store',
+        'show' => 'items.web.show',
+        'edit' => 'items.web.edit',
+        'update' => 'items.web.update',
+        'destroy' => 'items.web.destroy',
+    ]);
+    Route::post('items/{item}/toggle-status', [ItemController::class, 'toggleStatus'])->name('items.web.toggle-status');
+    Route::get('items/child-items', [ItemController::class, 'getChildItems'])->name('items.web.child-items');
+});
+
+// Supplier Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('suppliers', SupplierController::class)->names([
+        'index' => 'suppliers.web.index',
+        'create' => 'suppliers.web.create',
+        'store' => 'suppliers.web.store',
+        'show' => 'suppliers.web.show',
+        'edit' => 'suppliers.web.edit',
+        'update' => 'suppliers.web.update',
+        'destroy' => 'suppliers.web.destroy',
+    ]);
+    Route::post('suppliers/{supplier}/toggle-status', [SupplierController::class, 'toggleStatus'])->name('suppliers.web.toggle-status');
+});
+
+// Purchase Order Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('purchase-orders', PurchaseOrderController::class)->names([
+        'index' => 'purchase-orders.web.index',
+        'create' => 'purchase-orders.web.create',
+        'store' => 'purchase-orders.web.store',
+        'show' => 'purchase-orders.web.show',
+        'edit' => 'purchase-orders.web.edit',
+        'update' => 'purchase-orders.web.update',
+        'destroy' => 'purchase-orders.web.destroy',
+    ]);
+    Route::post('purchase-orders/{purchaseOrder}/update-status', [PurchaseOrderController::class, 'updateStatus'])->name('purchase-orders.web.update-status');
+    Route::get('purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.web.receive');
+    Route::post('purchase-orders/{purchaseOrder}/receive-inventory', [PurchaseOrderController::class, 'receiveInventory'])->name('purchase-orders.web.receive-inventory');
+});
+
+// Payment Dashboard Routes (Protected by authentication) - Must come before resource routes
+Route::middleware('auth')->group(function () {
+    Route::get('payments/dashboard', [PaymentDashboardController::class, 'index'])->name('payments.web.dashboard');
+    Route::get('payments/reconciliation', [PaymentDashboardController::class, 'reconciliation'])->name('payments.web.reconciliation');
+    Route::get('payments/expenses', [PaymentDashboardController::class, 'expenses'])->name('payments.web.expenses');
+    Route::get('payments/reports', [PaymentDashboardController::class, 'reports'])->name('payments.web.reports');
+});
+
+// Bill Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    // Enter Bill Routes
+    Route::resource('bills/enter-bill', EnterBillController::class)->names([
+        'index' => 'bills.enter-bill.index',
+        'create' => 'bills.enter-bill.create',
+        'store' => 'bills.enter-bill.store',
+        'show' => 'bills.enter-bill.show',
+        'edit' => 'bills.enter-bill.edit',
+        'update' => 'bills.enter-bill.update',
+        'destroy' => 'bills.enter-bill.destroy',
+    ]);
+
+    // Pay Bill Routes
+    Route::resource('bills/pay-bill', PayBillController::class)->names([
+        'index' => 'bills.pay-bill.index',
+        'create' => 'bills.pay-bill.create',
+        'store' => 'bills.pay-bill.store',
+        'show' => 'bills.pay-bill.show',
+    ]);
+    
+    // Additional Pay Bill Routes
+    Route::get('bills/pay-bill/{payment}/voucher', [PayBillController::class, 'printVoucher'])->name('bills.pay-bill.voucher');
+    Route::get('bills/pay-bill/unpaid-bills', [PayBillController::class, 'getUnpaidBills'])->name('bills.pay-bill.unpaid-bills');
+});
+
+// Payment Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('payments', PaymentController::class)->names([
+        'index' => 'payments.web.index',
+        'create' => 'payments.web.create',
+        'store' => 'payments.web.store',
+        'show' => 'payments.web.show',
+        'edit' => 'payments.web.edit',
+        'update' => 'payments.web.update',
+        'destroy' => 'payments.web.destroy',
+    ]);
+    Route::get('purchase-orders/{purchaseOrder}/payments/create', [PaymentController::class, 'createForPurchaseOrder'])->name('purchase-orders.web.payments.create');
+});
+
+// Invoice Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('invoices', InvoiceController::class)->names([
+        'index' => 'invoices.web.index',
+        'create' => 'invoices.web.create',
+        'store' => 'invoices.web.store',
+        'show' => 'invoices.web.show',
+        'edit' => 'invoices.web.edit',
+        'update' => 'invoices.web.update',
+        'destroy' => 'invoices.web.destroy',
+    ]);
+    Route::get('invoices/{invoice}/print', [InvoiceController::class, 'print'])->name('invoices.web.print');
+    Route::post('invoices/{invoice}/email', [InvoiceController::class, 'email'])->name('invoices.web.email');
+    Route::post('invoices/{invoice}/mark-paid', [InvoiceController::class, 'markAsPaid'])->name('invoices.web.mark-paid');
+});
+
+// POS Dashboard Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::get('pos', [POSController::class, 'index'])->name('pos.dashboard');
+    Route::post('pos/customer-pricing', [POSController::class, 'getCustomerPricing'])->name('pos.customer-pricing');
+    Route::post('pos/customer-invoices', [POSController::class, 'getCustomerInvoices'])->name('pos.customer-invoices');
+    Route::post('pos/create-invoice', [POSController::class, 'createInvoice'])->name('pos.create-invoice');
+});
+
+// Sales Orders Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('sales-orders', SalesOrderController::class);
+});
+
+// Quotations Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::resource('quotations', QuotationController::class);
+    Route::get('quotations/{quotation}/print', [QuotationController::class, 'print'])->name('quotations.print');
+    Route::post('quotations/{quotation}/send', [QuotationController::class, 'send'])->name('quotations.send');
+    Route::post('quotations/{quotation}/accept', [QuotationController::class, 'accept'])->name('quotations.accept');
+    Route::post('quotations/{quotation}/reject', [QuotationController::class, 'reject'])->name('quotations.reject');
+});
+
+// Chart of Accounts Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    // AJAX routes must come before resource routes
+    Route::get('accounts/parent-accounts-by-type', [ChartOfAccountsController::class, 'getParentAccountsByType'])->name('accounts.parent-by-type');
+    Route::get('accounts/parent-accounts', [ChartOfAccountsController::class, 'getParentAccounts'])->name('accounts.parent-accounts');
+    Route::get('accounts/balance-summary', [ChartOfAccountsController::class, 'balanceSummary'])->name('accounts.balance-summary');
+    Route::get('accounts/generate-code', [ChartOfAccountsController::class, 'generateAccountCodeAjax'])->name('accounts.generate-code');
+
+    // Account Type and Sub-Account Creation Routes
+    Route::post('accounts/create-account-type', [ChartOfAccountsController::class, 'createAccountType'])->name('accounts.create-account-type');
+    Route::post('accounts/create-sub-account', [ChartOfAccountsController::class, 'createSubAccount'])->name('accounts.create-sub-account');
+
+    // General Ledger Routes - MUST come before resource routes to avoid route conflicts
+    Route::get('accounts/general-ledger', [GeneralLedgerController::class, 'index'])->name('accounts.general-ledger.index');
+    Route::get('accounts/general-ledger/export', [GeneralLedgerController::class, 'export'])->name('accounts.general-ledger.export');
+
+    // Chart of Accounts Data Routes - MUST come before resource routes
+    Route::get('accounts/reports/chart-of-accounts-data', [ChartOfAccountsDataController::class, 'index'])->name('accounts.reports.chart-of-accounts-data');
+    Route::get('accounts/reports/sub-account-details/{account}', [SubAccountDetailsController::class, 'show'])->name('accounts.reports.sub-account-details');
+    
+    // Balance Sheet and Income Statement Routes - MUST come before resource routes
+    Route::get('accounts/reports/balance-sheet', [BalanceSheetController::class, 'index'])->name('accounts.reports.balance-sheet');
+    Route::get('accounts/reports/income-statement', [IncomeStatementController::class, 'index'])->name('accounts.reports.income-statement');
+
+    // Write Check Routes - MUST come before resource routes
+    Route::get('accounts/write-check', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'index'])->name('accounts.write-check.index');
+    Route::post('accounts/write-check', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'store'])->name('accounts.write-check.store');
+    Route::get('accounts/write-check/balance', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'getAccountBalance'])->name('accounts.write-check.balance');
+
+    // Main Chart of Accounts Resource Routes
+    Route::resource('accounts', ChartOfAccountsController::class);
+    Route::post('accounts/{account}/toggle-status', [ChartOfAccountsController::class, 'toggleStatus'])->name('accounts.toggle-status');
+
+    // Sub-Accounts Routes
+    Route::get('accounts/{account}/sub-accounts', [ChartOfAccountsController::class, 'getSubAccounts'])->name('accounts.sub-accounts');
+});
 
 // Health check route
 Route::get('/up', function () {

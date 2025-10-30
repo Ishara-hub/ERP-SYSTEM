@@ -145,4 +145,15 @@ class Account extends Model
         
         return implode(' > ', $path);
     }
+
+    /**
+     * Get all journal entries for this account (both debit and credit)
+     */
+    public function journalEntries()
+    {
+        $debitEntries = $this->debitJournals()->with('creditAccount', 'transaction')->get();
+        $creditEntries = $this->creditJournals()->with('debitAccount', 'transaction')->get();
+        
+        return $debitEntries->concat($creditEntries)->sortBy('date');
+    }
 }

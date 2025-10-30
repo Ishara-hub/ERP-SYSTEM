@@ -52,6 +52,11 @@ class PurchaseOrder extends Model
         return $this->hasMany(PurchaseOrderItem::class);
     }
 
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -106,5 +111,35 @@ class PurchaseOrder extends Model
         if ($this->status === 'confirmed') return 50;
         if ($this->status === 'sent') return 25;
         return 0;
+    }
+
+    public function getTotalPaymentsAttribute()
+    {
+        return $this->payments()->where('status', 'completed')->sum('amount');
+    }
+
+    public function getBalanceDueAttribute()
+    {
+        return $this->total_amount - $this->total_payments;
+    }
+
+    public function getPaymentStatusAttribute()
+    {
+        if ($this->total_payments >= $this->total_amount) {
+            return 'paid';
+        } elseif ($this->total_payments > 0) {
+            return 'partial';
+        }
+        return 'unpaid';
+    }
+
+    public function getPaymentStatusColorAttribute()
+    {
+        return match($this->payment_status) {
+            'paid' => 'green',
+            'partial' => 'yellow',
+            'unpaid' => 'red',
+            default => 'gray'
+        };
     }
 }

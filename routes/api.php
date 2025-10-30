@@ -33,6 +33,7 @@ Route::get('/test', function () {
     return response()->json(['message' => 'API is working!', 'timestamp' => now()]);
 });
 
+
 // Test route with middleware
 Route::get('/test-middleware', function () {
     return response()->json(['message' => 'API middleware is working!', 'timestamp' => now()]);
@@ -43,6 +44,9 @@ Route::post('/auth/login', [AuthApiController::class, 'login']);
 Route::post('/auth/register', [AuthApiController::class, 'register']);
 Route::post('/auth/forgot-password', [AuthApiController::class, 'forgotPassword']);
 Route::post('/auth/reset-password', [AuthApiController::class, 'resetPassword']);
+
+// Public customer search for invoice creation
+Route::get('/customers/search', [CustomersApiController::class, 'search']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {

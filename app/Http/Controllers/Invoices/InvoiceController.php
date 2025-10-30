@@ -7,9 +7,11 @@ use App\Models\Invoice;
 use App\Models\InvoiceLineItem;
 use App\Models\Customer;
 use App\Models\Item;
+use App\Models\Account;
+use App\Models\Transaction;
+use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use Inertia\Inertia;
 use DB;
 
 class InvoiceController extends Controller
@@ -55,7 +57,7 @@ class InvoiceController extends Controller
 
         $invoices = $query->paginate(15);
 
-        return Inertia::render('invoices/index', [
+        return view('invoices.index', [
             'invoices' => $invoices,
             'filters' => $request->only(['search', 'status', 'date_from', 'date_to', 'sort_by', 'sort_direction'])
         ]);
@@ -69,7 +71,7 @@ class InvoiceController extends Controller
         $customers = Customer::orderBy('name')->get(['id', 'name', 'email', 'address']);
         $items = Item::where('is_active', true)->orderBy('item_name')->get(['id', 'item_name', 'sales_price', 'item_type']);
         
-        return Inertia::render('invoices/create', [
+        return view('invoices.create', [
             'customers' => $customers,
             'items' => $items,
         ]);
@@ -83,17 +85,20 @@ class InvoiceController extends Controller
         $request->validate([
             'customer_id' => 'required|exists:customers,id',
             'date' => 'required|date',
-            'ship_date' => 'nullable|date',
+            'due_date' => 'nullable|date',
             'po_number' => 'nullable|string|max:255',
             'terms' => 'nullable|string|max:255',
             'rep' => 'nullable|string|max:255',
+            'ship_date' => 'nullable|date',
             'via' => 'nullable|string|max:255',
             'fob' => 'nullable|string|max:255',
-            'customer_message' => 'nullable|string|max:255',
-            'memo' => 'nullable|string',
+            'template' => 'nullable|string|max:255',
             'billing_address' => 'nullable|string',
             'shipping_address' => 'nullable|string',
-            'template' => 'nullable|string|max:255',
+            'customer_message' => 'nullable|string',
+            'memo' => 'nullable|string',
+            'discount_amount' => 'nullable|numeric|min:0',
+            'shipping_amount' => 'nullable|numeric|min:0',
             'is_online_payment_enabled' => 'boolean',
             'line_items' => 'required|array|min:1',
             'line_items.*.item_id' => 'nullable|exists:items,id',
@@ -109,23 +114,28 @@ class InvoiceController extends Controller
             $invoice = Invoice::create([
                 'customer_id' => $request->customer_id,
                 'date' => $request->date,
-                'ship_date' => $request->ship_date,
+                'due_date' => $request->due_date,
                 'po_number' => $request->po_number,
                 'terms' => $request->terms,
                 'rep' => $request->rep,
+                'ship_date' => $request->ship_date,
                 'via' => $request->via,
                 'fob' => $request->fob,
-                'customer_message' => $request->customer_message,
-                'memo' => $request->memo,
+                'template' => $request->template ?? 'default',
                 'billing_address' => $request->billing_address,
                 'shipping_address' => $request->shipping_address,
-                'template' => $request->template ?? 'default',
+                'customer_message' => $request->customer_message,
+                'memo' => $request->memo,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'shipping_amount' => $request->shipping_amount ?? 0,
                 'is_online_payment_enabled' => $request->is_online_payment_enabled ?? false,
             ]);
 
-            // Create line items
+            $totalCostOfGoodsSold = 0;
+
+            // Create line items and handle inventory
             foreach ($request->line_items as $lineItemData) {
-                InvoiceLineItem::create([
+                $lineItem = InvoiceLineItem::create([
                     'invoice_id' => $invoice->id,
                     'item_id' => $lineItemData['item_id'] ?? null,
                     'description' => $lineItemData['description'],
@@ -133,15 +143,98 @@ class InvoiceController extends Controller
                     'unit_price' => $lineItemData['unit_price'],
                     'tax_rate' => $lineItemData['tax_rate'] ?? 0,
                 ]);
+
+                // Handle inventory deduction and COGS calculation
+                if ($lineItem->item_id) {
+                    $item = Item::find($lineItem->item_id);
+                    
+                    if ($item && $item->isInventoryItem()) {
+                        // Check if sufficient inventory
+                        if ($item->on_hand < $lineItem->quantity) {
+                            throw new \Exception("Insufficient inventory for item: {$item->item_name}. Available: {$item->on_hand}, Required: {$lineItem->quantity}");
+                        }
+
+                        // Deduct quantity from inventory
+                        $item->on_hand -= $lineItem->quantity;
+                        $item->save();
+
+                        // Calculate cost for COGS
+                        $lineItemCost = $item->cost * $lineItem->quantity;
+                        $totalCostOfGoodsSold += $lineItemCost;
+
+                        // Record stock movement
+                        StockMovement::create([
+                            'item_id' => $item->id,
+                            'quantity' => -$lineItem->quantity, // Negative for deduction
+                            'type' => 'sale',
+                            'source_document' => 'invoice',
+                            'source_document_id' => $invoice->id,
+                            'transaction_date' => $invoice->date,
+                            'description' => "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}",
+                        ]);
+                    }
+                }
             }
 
             // Calculate totals
             $invoice->calculateTotals();
 
+            // Get required accounts
+            $accountsReceivable = Account::where('account_name', 'Accounts Receivable')->first();
+            $salesRevenue = Account::where('account_name', 'Sales Revenue')->first();
+            $cogsAccount = Account::where('account_name', 'Cost of Goods Sold')->first();
+            $inventoryAccount = Account::where('account_name', 'Inventory')->first();
+
+            if (!$accountsReceivable || !$salesRevenue || !$cogsAccount || !$inventoryAccount) {
+                throw new \Exception('Required accounts not found. Please run the ChartOfAccountsSeeder.');
+            }
+
+            // Create Journal Entries (Double-Entry Accounting)
+            
+            // Entry 1: Record the Sale and Receivable
+            // Debit Accounts Receivable
+            Transaction::create([
+                'account_id' => $accountsReceivable->id,
+                'type' => 'debit',
+                'amount' => $invoice->total_amount,
+                'description' => "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}",
+                'transaction_date' => $invoice->date,
+            ]);
+            
+            // Credit Sales Revenue
+            Transaction::create([
+                'account_id' => $salesRevenue->id,
+                'type' => 'credit',
+                'amount' => $invoice->total_amount,
+                'description' => "Invoice #{$invoice->invoice_no} - Sales Revenue from {$invoice->customer->name}",
+                'transaction_date' => $invoice->date,
+            ]);
+
+            // Entry 2: Record Cost of Goods Sold and Inventory Reduction
+            if ($totalCostOfGoodsSold > 0) {
+                // Debit Cost of Goods Sold
+                Transaction::create([
+                    'account_id' => $cogsAccount->id,
+                    'type' => 'debit',
+                    'amount' => $totalCostOfGoodsSold,
+                    'description' => "Invoice #{$invoice->invoice_no} - Cost of Goods Sold",
+                    'transaction_date' => $invoice->date,
+                ]);
+                
+                // Credit Inventory
+                Transaction::create([
+                    'account_id' => $inventoryAccount->id,
+                    'type' => 'credit',
+                    'amount' => $totalCostOfGoodsSold,
+                    'description' => "Invoice #{$invoice->invoice_no} - Inventory reduction",
+                    'transaction_date' => $invoice->date,
+                ]);
+            }
+
             DB::commit();
 
-            return redirect()->route('invoices.show', $invoice)
-                ->with('success', 'Invoice created successfully.');
+            return redirect()->route('invoices.web.show', $invoice)
+                ->with('success', 'Invoice created successfully with proper accounting entries.');
         } catch (\Exception $e) {
             DB::rollback();
             return back()->withErrors(['error' => 'Failed to create invoice: ' . $e->getMessage()]);
@@ -155,7 +248,7 @@ class InvoiceController extends Controller
     {
         $invoice->load(['customer', 'lineItems.item', 'payments']);
         
-        return Inertia::render('invoices/show', [
+        return view('invoices.show', [
             'invoice' => $invoice
         ]);
     }
@@ -169,7 +262,7 @@ class InvoiceController extends Controller
         $customers = Customer::orderBy('name')->get(['id', 'name', 'email', 'address']);
         $items = Item::where('is_active', true)->orderBy('item_name')->get(['id', 'item_name', 'sales_price', 'item_type']);
         
-        return Inertia::render('invoices/edit', [
+        return view('invoices.edit', [
             'invoice' => $invoice,
             'customers' => $customers,
             'items' => $items,
@@ -276,7 +369,7 @@ class InvoiceController extends Controller
     {
         $invoice->load(['customer', 'lineItems.item']);
         
-        return Inertia::render('invoices/print', [
+        return view('invoices.print', [
             'invoice' => $invoice
         ]);
     }

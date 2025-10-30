@@ -12,6 +12,14 @@ class Customer extends Model
         'email',
         'phone',
         'address',
+        'company',
+        'contact_person',
+        'notes',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 
     public function invoices(): HasMany

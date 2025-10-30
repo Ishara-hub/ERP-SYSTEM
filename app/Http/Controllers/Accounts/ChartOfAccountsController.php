@@ -141,7 +141,7 @@ class ChartOfAccountsController extends Controller
 
         $account = Account::create($request->all());
 
-        return redirect()->route('accounts.chart-of-accounts.index')
+        return redirect()->route('accounts.index')
             ->with('success', 'Account created successfully.');
     }
 
@@ -238,7 +238,7 @@ class ChartOfAccountsController extends Controller
 
         $account->update($request->all());
 
-        return redirect()->route('accounts.chart-of-accounts.index')
+        return redirect()->route('accounts.index')
             ->with('success', 'Account updated successfully.');
     }
 
@@ -249,25 +249,25 @@ class ChartOfAccountsController extends Controller
     {
         // Prevent deletion of system accounts
         if ($account->is_system) {
-            return redirect()->route('accounts.chart-of-accounts.index')
-                ->with('error', 'Cannot delete system accounts.');
+        return redirect()->route('accounts.index')
+            ->with('error', 'Cannot delete system accounts.');
         }
 
         // Prevent deletion of accounts with children
         if ($account->hasChildren()) {
-            return redirect()->route('accounts.chart-of-accounts.index')
+            return redirect()->route('accounts.index')
                 ->with('error', 'Cannot delete account with sub-accounts. Please delete sub-accounts first.');
         }
 
         // Prevent deletion of accounts with transactions
         if ($account->transactions()->count() > 0) {
-            return redirect()->route('accounts.chart-of-accounts.index')
+            return redirect()->route('accounts.index')
                 ->with('error', 'Cannot delete account with transactions. Please transfer or delete transactions first.');
         }
 
         $account->delete();
 
-        return redirect()->route('accounts.chart-of-accounts.index')
+        return redirect()->route('accounts.index')
             ->with('success', 'Account deleted successfully.');
     }
 
@@ -383,5 +383,116 @@ class ChartOfAccountsController extends Controller
             ->keyBy('account_type');
 
         return response()->json($summary);
+    }
+
+    /**
+     * Generate account code via AJAX
+     */
+    public function generateAccountCodeAjax(Request $request)
+    {
+        $accountType = $request->get('account_type');
+        
+        if (!$accountType) {
+            return response()->json(['error' => 'Account type is required'], 400);
+        }
+
+        $accountCode = $this->generateAccountCode($accountType);
+        
+        return response()->json([
+            'account_code' => $accountCode
+        ]);
+    }
+
+    /**
+     * Create account type (parent account) via AJAX
+     */
+    public function createAccountType(Request $request)
+    {
+        $request->validate([
+            'account_code' => 'nullable|string|max:20|unique:accounts,account_code',
+            'account_name' => 'required|string|max:255',
+            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+            'opening_balance' => 'nullable|numeric',
+            'description' => 'nullable|string|max:1000',
+            'is_active' => 'boolean',
+            'sort_order' => 'nullable|integer|min:0'
+        ]);
+
+        // Generate account code if not provided
+        if (!$request->account_code) {
+            $request->merge(['account_code' => $this->generateAccountCode($request->account_type)]);
+        }
+
+        // Ensure parent_id is null for account types
+        $request->merge(['parent_id' => null]);
+
+        $account = Account::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Account type created successfully.',
+            'account' => $account->load('parent', 'children')
+        ], 201);
+    }
+
+    /**
+     * Create sub-account via AJAX
+     */
+    public function createSubAccount(Request $request)
+    {
+        $request->validate([
+            'account_code' => 'nullable|string|max:20|unique:accounts,account_code',
+            'account_name' => 'required|string|max:255',
+            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+            'parent_id' => [
+                'required',
+                'exists:accounts,id',
+                function ($attribute, $value, $fail) use ($request) {
+                    if ($value) {
+                        $parentAccount = Account::find($value);
+                        if ($parentAccount && $parentAccount->account_type !== $request->account_type) {
+                            $fail('Parent account must be of the same account type.');
+                        }
+                        if ($parentAccount && $parentAccount->parent_id !== null) {
+                            $fail('Parent account cannot be a sub-account. Please select a main account.');
+                        }
+                    }
+                }
+            ],
+            'opening_balance' => 'nullable|numeric',
+            'description' => 'nullable|string|max:1000',
+            'is_active' => 'boolean',
+            'sort_order' => 'nullable|integer|min:0'
+        ]);
+
+        // Generate account code if not provided
+        if (!$request->account_code) {
+            $request->merge(['account_code' => $this->generateAccountCode($request->account_type)]);
+        }
+
+        $account = Account::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Sub-account created successfully.',
+            'account' => $account->load('parent', 'children')
+        ], 201);
+    }
+
+    /**
+     * Get sub-accounts for a parent account
+     */
+    public function getSubAccounts(Request $request, Account $account)
+    {
+        $subAccounts = $account->children()
+            ->with('children')
+            ->orderBy('sort_order')
+            ->orderBy('account_name')
+            ->get();
+
+        return response()->json([
+            'subAccounts' => $subAccounts,
+            'parent' => $account
+        ]);
     }
 }

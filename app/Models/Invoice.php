@@ -12,6 +12,7 @@ class Invoice extends Model
         'customer_id',
         'invoice_no',
         'date',
+        'due_date',
         'total_amount',
         'status',
         'billing_address',
@@ -36,6 +37,7 @@ class Invoice extends Model
 
     protected $casts = [
         'date' => 'date',
+        'due_date' => 'date',
         'ship_date' => 'date',
         'total_amount' => 'decimal:2',
         'subtotal' => 'decimal:2',
