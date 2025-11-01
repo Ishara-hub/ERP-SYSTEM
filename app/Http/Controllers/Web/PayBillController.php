@@ -8,8 +8,12 @@ use App\Models\Payment;
 use App\Models\Supplier;
 use App\Models\Account;
 use App\Models\Journal;
+use App\Models\GeneralJournal;
+use App\Models\JournalEntryLine;
+use App\Models\BankTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class PayBillController extends Controller
 {
@@ -123,6 +127,7 @@ class PayBillController extends Controller
             'bank_account_id' => 'required|exists:accounts,id',
             'payment_date' => 'required|date',
             'payment_method' => 'required|in:cash,check,bank_transfer,credit_card',
+            'check_number' => 'nullable|string|max:50',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'selected_bills' => 'required|array|min:1',
@@ -137,7 +142,7 @@ class PayBillController extends Controller
 
             // Validate bill amounts
             foreach ($request->selected_bills as $billId) {
-                $bill = Bill::findOrFail($billId);
+                $bill = Bill::with('items')->findOrFail($billId);
                 $amount = $request->payment_amount[$billId] ?? 0;
                 
                 if ($amount <= 0) {
@@ -165,10 +170,11 @@ class PayBillController extends Controller
                 'payment_date' => $request->payment_date,
                 'payment_method' => $request->payment_method,
                 'amount' => $totalAmount,
+                'check_number' => $request->check_number,
                 'reference' => $request->reference,
                 'notes' => $request->notes,
                 'status' => 'completed',
-                'payment_type' => 'bill_payment',
+                'payment_type' => 'paid',
                 'payment_category_id' => 1, // Vendor Payments
                 'bank_account_id' => $request->bank_account_id,
                 'received_by' => auth()->user()->name,
@@ -182,11 +188,19 @@ class PayBillController extends Controller
                 // Update bill payment amount
                 $bill->increment('paid_amount', $amount);
                 $bill->refresh();
+                
+                // Reload with items to calculate totals properly
+                $bill->load('items');
                 $bill->calculateTotals();
                 $bill->save();
-
-                // Create journal entries for this bill payment
-                $this->createPaymentJournalEntries($payment, $bill, $amount, $request->bank_account_id, $request->liability_account_id);
+            }
+            
+            // Create journal entries for the payment (debit liability, credit bank)
+            $this->createPaymentJournalEntries($payment, $totalAmount, $request->bank_account_id, $request->liability_account_id);
+            
+            // Create bank transaction if payment method is bank (check, bank_transfer)
+            if (in_array($request->payment_method, ['check', 'bank_transfer'])) {
+                $this->createBankTransaction($payment);
             }
 
             DB::commit();
@@ -246,24 +260,73 @@ class PayBillController extends Controller
     /**
      * Create journal entries for bill payment.
      */
-    private function createPaymentJournalEntries(Payment $payment, Bill $bill, $amount, $bankAccountId, $liabilityAccountId)
+    private function createPaymentJournalEntries(Payment $payment, $amount, $bankAccountId, $liabilityAccountId)
     {
-        // Create a transaction record first
+        // Create reference
+        $reference = $payment->payment_number ?? ('PAY-' . $payment->id);
+        $supplierName = $payment->supplier ? $payment->supplier->name : 'Supplier';
+        
+        // Create a general journal entry for the payment
+        $generalJournal = GeneralJournal::create([
+            'transaction_date' => $payment->payment_date,
+            'reference' => $reference,
+            'description' => "Payment to {$supplierName} - {$payment->notes}",
+            'created_by' => Auth::id(),
+        ]);
+        
+        // Debit liability account (Accounts Payable)
+        JournalEntryLine::create([
+            'journal_id' => $generalJournal->id,
+            'account_id' => $liabilityAccountId,
+            'debit' => $amount,
+            'credit' => 0,
+            'description' => "Payment {$reference}",
+        ]);
+        
+        // Credit bank account
+        JournalEntryLine::create([
+            'journal_id' => $generalJournal->id,
+            'account_id' => $bankAccountId,
+            'debit' => 0,
+            'credit' => $amount,
+            'description' => "Payment {$reference}",
+        ]);
+        
+        // Also create the old journal entries for backward compatibility
         $transaction = \App\Models\Transaction::create([
             'account_id' => $liabilityAccountId,
             'type' => 'debit',
             'amount' => $amount,
-            'description' => "Payment for bill {$bill->bill_number} - {$bill->supplier->name}",
+            'description' => "Payment {$reference}",
             'transaction_date' => $payment->payment_date,
         ]);
 
-        // Create journal entry (debit liability, credit bank)
         Journal::create([
             'transaction_id' => $transaction->id,
             'debit_account_id' => $liabilityAccountId,
             'credit_account_id' => $bankAccountId,
             'amount' => $amount,
             'date' => $payment->payment_date,
+        ]);
+    }
+    
+    /**
+     * Create bank transaction for payment.
+     */
+    private function createBankTransaction(Payment $payment)
+    {
+        $supplierName = $payment->supplier ? $payment->supplier->name : 'Supplier';
+        
+        BankTransaction::create([
+            'bank_account_id' => $payment->bank_account_id,
+            'transaction_date' => $payment->payment_date,
+            'type' => BankTransaction::TYPE_WITHDRAWAL,
+            'amount' => $payment->amount,
+            'description' => "Payment to {$supplierName} - {$payment->notes}",
+            'check_number' => $payment->check_number,
+            'reference_number' => $payment->reference,
+            'status' => BankTransaction::STATUS_PENDING,
+            'payment_id' => $payment->id,
         ]);
     }
 }

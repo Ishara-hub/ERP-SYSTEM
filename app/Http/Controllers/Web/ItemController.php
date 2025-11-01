@@ -12,6 +12,110 @@ use Illuminate\Validation\Rule;
 class ItemController extends Controller
 {
     /**
+     * Show bulk create form
+     */
+    public function bulkCreate()
+    {
+        $itemTypes = [
+            Item::SERVICE => 'Service',
+            Item::INVENTORY_PART => 'Inventory Part',
+            Item::INVENTORY_ASSEMBLY => 'Inventory Assembly',
+            Item::NON_INVENTORY_PART => 'Non-Inventory Part',
+            Item::OTHER_CHARGE => 'Other Charge',
+            Item::DISCOUNT => 'Discount',
+            Item::GROUP => 'Group',
+            Item::PAYMENT => 'Payment',
+        ];
+
+        $cogsAccounts = Account::where('account_type', 'Expense')->orderBy('account_name')->get();
+        $incomeAccounts = Account::where('account_type', 'Income')->orderBy('account_name')->get();
+        $assetAccounts = Account::where('account_type', 'Asset')->orderBy('account_name')->get();
+        $suppliers = Supplier::where('is_active', true)->orderBy('name')->get();
+
+        return view('items.bulk-create', compact('itemTypes', 'cogsAccounts', 'incomeAccounts', 'assetAccounts', 'suppliers'));
+    }
+
+    /**
+     * Store multiple items at once
+     */
+    public function bulkStore(Request $request)
+    {
+        // Filter out empty rows before validation
+        $items = collect($request->items)->filter(function ($item) {
+            return !empty($item['item_name']) && trim($item['item_name']) !== '';
+        })->values()->toArray();
+
+        if (empty($items)) {
+            return redirect()->back()
+                ->withErrors(['items' => 'Please enter at least one item with a name.'])
+                ->withInput();
+        }
+
+        // Custom validation with filtered items
+        $request->merge(['items' => $items]);
+        
+        $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.item_name' => 'required|string|max:255',
+            'items.*.item_number' => 'nullable|string|max:50|distinct',
+            'items.*.item_type' => 'required|in:' . implode(',', Item::getConstants()),
+            'items.*.sales_price' => 'nullable|numeric|min:0',
+            'items.*.cost' => 'nullable|numeric|min:0',
+            'items.*.income_account_id' => 'nullable|exists:accounts,id',
+            'items.*.cogs_account_id' => 'nullable|exists:accounts,id',
+            'items.*.asset_account_id' => 'nullable|exists:accounts,id',
+            'items.*.preferred_vendor_id' => 'nullable|exists:suppliers,id',
+        ]);
+
+        $created = 0;
+        $skipped = 0;
+        
+        foreach ($items as $row) {
+            // Ensure unique item_number if provided
+            if (!empty($row['item_number'])) {
+                if (Item::where('item_number', $row['item_number'])->exists()) {
+                    $skipped++;
+                    continue; // skip duplicates silently
+                }
+            }
+
+            // Handle is_active checkbox (can be "0", "1", or not set)
+            $isActive = true; // default
+            if (isset($row['is_active'])) {
+                $isActive = in_array($row['is_active'], ['1', 1, true, 'true'], true);
+            }
+
+            try {
+                $item = Item::create([
+                    'item_name' => $row['item_name'],
+                    'item_number' => $row['item_number'] ?? null,
+                    'item_type' => $row['item_type'],
+                    'sales_price' => $row['sales_price'] ?? 0,
+                    'cost' => $row['cost'] ?? 0,
+                    'income_account_id' => $row['income_account_id'] ?? null,
+                    'cogs_account_id' => $row['cogs_account_id'] ?? null,
+                    'asset_account_id' => $row['asset_account_id'] ?? null,
+                    'preferred_vendor_id' => $row['preferred_vendor_id'] ?? null,
+                    'is_active' => $isActive,
+                    'is_inactive' => !$isActive,
+                ]);
+
+                $item->updateCalculatedFields();
+                $created++;
+            } catch (\Exception $e) {
+                $skipped++;
+                continue;
+            }
+        }
+
+        $message = $created . ' item(s) created successfully.';
+        if ($skipped > 0) {
+            $message .= " ($skipped item(s) skipped due to duplicates or errors)";
+        }
+
+        return redirect()->route('items.web.index')->with('success', $message);
+    }
+    /**
      * Display a listing of the resource.
      */
     public function index(Request $request)

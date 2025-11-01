@@ -63,7 +63,7 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
-                        <select name="payment_method" required class="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <select name="payment_method" id="payment_method" required class="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                             <option value="cash">Cash</option>
                             <option value="check">Check</option>
                             <option value="bank_transfer">Bank Transfer</option>
@@ -78,6 +78,10 @@
                                 <option value="{{ $account->id }}">{{ $account->account_name }}</option>
                             @endforeach
                         </select>
+                    </div>
+                    <div id="check_number_field" style="display: none;">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Check Number</label>
+                        <input type="text" name="check_number" id="check_number" placeholder="Enter check number" class="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Reference</label>
@@ -153,6 +157,17 @@
 </div>
 
 <script>
+// Show/hide check number field based on payment method
+document.getElementById('payment_method').addEventListener('change', function() {
+    const checkNumberField = document.getElementById('check_number_field');
+    if (this.value === 'check' || this.value === 'bank_transfer') {
+        checkNumberField.style.display = 'block';
+    } else {
+        checkNumberField.style.display = 'none';
+        document.getElementById('check_number').value = '';
+    }
+});
+
 // Auto-fill payment amount with balance due when checkbox is clicked
 document.querySelectorAll('.bill-checkbox').forEach(checkbox => {
     checkbox.addEventListener('change', function() {
@@ -168,8 +183,34 @@ document.querySelectorAll('.bill-checkbox').forEach(checkbox => {
     });
 });
 
-// Debug form submission
+// Form validation
 document.getElementById('payment-form').addEventListener('submit', function(e) {
+    const selectedBills = document.querySelectorAll('.bill-checkbox:checked');
+    
+    if (selectedBills.length === 0) {
+        e.preventDefault();
+        alert('Please select at least one bill to pay.');
+        return false;
+    }
+    
+    // Validate that payment amounts are provided for selected bills
+    let hasAmounts = false;
+    selectedBills.forEach(checkbox => {
+        const billId = checkbox.value;
+        const paymentInput = this.querySelector(`input[name="payment_amount[${billId}]"]`);
+        const amount = parseFloat(paymentInput.value) || 0;
+        
+        if (amount > 0) {
+            hasAmounts = true;
+        }
+    });
+    
+    if (!hasAmounts) {
+        e.preventDefault();
+        alert('Please enter payment amounts for the selected bills.');
+        return false;
+    }
+    
     console.log('Form submitted');
     const formData = new FormData(this);
     console.log('Form Data:');

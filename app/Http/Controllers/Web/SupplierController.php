@@ -166,6 +166,99 @@ class SupplierController extends Controller
         return redirect()->route('suppliers.web.index')
             ->with('success', "Supplier {$status} successfully.");
     }
+
+    /**
+     * Show bulk create form
+     */
+    public function bulkCreate(): View
+    {
+        return view('suppliers.bulk-create');
+    }
+
+    /**
+     * Store multiple suppliers at once
+     */
+    public function bulkStore(Request $request): RedirectResponse
+    {
+        // Filter out empty rows before validation
+        $suppliers = collect($request->suppliers)->filter(function ($supplier) {
+            return !empty($supplier['name']) && trim($supplier['name']) !== '';
+        })->values()->toArray();
+
+        if (empty($suppliers)) {
+            return redirect()->back()
+                ->withErrors(['suppliers' => 'Please enter at least one supplier with a name.'])
+                ->withInput();
+        }
+
+        // Custom validation with filtered suppliers
+        $request->merge(['suppliers' => $suppliers]);
+        
+        $request->validate([
+            'suppliers' => 'required|array|min:1',
+            'suppliers.*.name' => 'required|string|max:255',
+            'suppliers.*.company_name' => 'nullable|string|max:255',
+            'suppliers.*.contact_person' => 'nullable|string|max:255',
+            'suppliers.*.email' => 'nullable|email|distinct',
+            'suppliers.*.phone' => 'nullable|string|max:20',
+            'suppliers.*.address' => 'nullable|string',
+            'suppliers.*.website' => 'nullable|url',
+            'suppliers.*.tax_id' => 'nullable|string|max:50',
+            'suppliers.*.payment_terms' => 'nullable|string|max:100',
+            'suppliers.*.credit_limit' => 'nullable|numeric|min:0',
+            'suppliers.*.currency' => 'nullable|string|max:3',
+            'suppliers.*.notes' => 'nullable|string',
+        ]);
+
+        $created = 0;
+        $skipped = 0;
+        
+        foreach ($suppliers as $row) {
+            // Ensure unique email if provided
+            if (!empty($row['email'])) {
+                if (Supplier::where('email', $row['email'])->exists()) {
+                    $skipped++;
+                    continue; // skip duplicates silently
+                }
+            }
+
+            // Handle is_active checkbox (can be "0", "1", or not set)
+            $isActive = true; // default
+            if (isset($row['is_active'])) {
+                $isActive = in_array($row['is_active'], ['1', 1, true, 'true'], true);
+            }
+
+            try {
+                Supplier::create([
+                    'name' => $row['name'],
+                    'company_name' => $row['company_name'] ?? null,
+                    'contact_person' => $row['contact_person'] ?? null,
+                    'email' => $row['email'] ?? null,
+                    'phone' => $row['phone'] ?? null,
+                    'address' => $row['address'] ?? null,
+                    'website' => $row['website'] ?? null,
+                    'tax_id' => $row['tax_id'] ?? null,
+                    'payment_terms' => $row['payment_terms'] ?? null,
+                    'credit_limit' => $row['credit_limit'] ?? null,
+                    'currency' => $row['currency'] ?? null,
+                    'notes' => $row['notes'] ?? null,
+                    'is_active' => $isActive,
+                ]);
+
+                $created++;
+            } catch (\Exception $e) {
+                $skipped++;
+                continue;
+            }
+        }
+
+        $message = $created . ' supplier(s) created successfully.';
+        if ($skipped > 0) {
+            $message .= " ($skipped supplier(s) skipped due to duplicates or errors)";
+        }
+
+        return redirect()->route('suppliers.web.index')->with('success', $message);
+    }
 }
 
 

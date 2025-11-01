@@ -11,6 +11,7 @@ class Bill extends Model
     protected $fillable = [
         'bill_number',
         'supplier_id',
+        'purchase_order_id',
         'liability_account_id',
         'bill_date',
         'due_date',
@@ -39,6 +40,11 @@ class Bill extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function purchaseOrder(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseOrder::class);
     }
 
     public function liabilityAccount(): BelongsTo
