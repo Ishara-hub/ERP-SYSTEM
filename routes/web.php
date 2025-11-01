@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Web\DashboardController;
+use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\UserController;
 use App\Http\Controllers\Web\ChartOfAccountsController;
 use App\Http\Controllers\Web\CustomerController;
@@ -12,6 +13,8 @@ use App\Http\Controllers\Web\PaymentController;
 use App\Http\Controllers\Web\PaymentDashboardController;
 use App\Http\Controllers\Web\EnterBillController;
 use App\Http\Controllers\Web\PayBillController;
+use App\Http\Controllers\Web\BankReconciliationController;
+use App\Http\Controllers\Web\JournalEntryController;
 use App\Http\Controllers\Invoices\InvoiceController;
 use App\Http\Controllers\POS\POSController;
 use App\Http\Controllers\SalesOrderController;
@@ -84,9 +87,10 @@ Route::get('/test-customers-simple', function() {
     return 'Customers test route working!';
 });
 
-// Dashboard Route (Protected by authentication)
+// Dashboard and Home Routes (Protected by authentication)
 Route::middleware('auth')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/home', [HomeController::class, 'index'])->name('home');
 });
 
 // User Management Routes (Protected by authentication)
@@ -106,6 +110,8 @@ Route::middleware('auth')->group(function () {
         'destroy' => 'customers.web.destroy',
     ]);
     Route::post('customers/{customer}/toggle-status', [CustomerController::class, 'toggleStatus'])->name('customers.web.toggle-status');
+    Route::get('customers/bulk/create', [CustomerController::class, 'bulkCreate'])->name('customers.web.bulk-create');
+    Route::post('customers/bulk/store', [CustomerController::class, 'bulkStore'])->name('customers.web.bulk-store');
 });
 
 // Item Management Routes (Protected by authentication)
@@ -119,6 +125,8 @@ Route::middleware('auth')->group(function () {
         'update' => 'items.web.update',
         'destroy' => 'items.web.destroy',
     ]);
+    Route::get('items/bulk/create', [ItemController::class, 'bulkCreate'])->name('items.web.bulk-create');
+    Route::post('items/bulk/store', [ItemController::class, 'bulkStore'])->name('items.web.bulk-store');
     Route::post('items/{item}/toggle-status', [ItemController::class, 'toggleStatus'])->name('items.web.toggle-status');
     Route::get('items/child-items', [ItemController::class, 'getChildItems'])->name('items.web.child-items');
 });
@@ -135,6 +143,8 @@ Route::middleware('auth')->group(function () {
         'destroy' => 'suppliers.web.destroy',
     ]);
     Route::post('suppliers/{supplier}/toggle-status', [SupplierController::class, 'toggleStatus'])->name('suppliers.web.toggle-status');
+    Route::get('suppliers/bulk/create', [SupplierController::class, 'bulkCreate'])->name('suppliers.web.bulk-create');
+    Route::post('suppliers/bulk/store', [SupplierController::class, 'bulkStore'])->name('suppliers.web.bulk-store');
 });
 
 // Purchase Order Management Routes (Protected by authentication)
@@ -163,7 +173,9 @@ Route::middleware('auth')->group(function () {
 
 // Bill Management Routes (Protected by authentication)
 Route::middleware('auth')->group(function () {
-    // Enter Bill Routes
+    // Enter Bill Routes - specific routes first
+    Route::get('bills/enter-bill/get-po-items', [EnterBillController::class, 'getPOItems'])->name('bills.enter-bill.get-po-items');
+    // Then resource routes
     Route::resource('bills/enter-bill', EnterBillController::class)->names([
         'index' => 'bills.enter-bill.index',
         'create' => 'bills.enter-bill.create',
@@ -274,6 +286,24 @@ Route::middleware('auth')->group(function () {
 
     // Sub-Accounts Routes
     Route::get('accounts/{account}/sub-accounts', [ChartOfAccountsController::class, 'getSubAccounts'])->name('accounts.sub-accounts');
+});
+
+// Bank Reconciliation Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::get('bank-reconciliation', [BankReconciliationController::class, 'index'])->name('bank-reconciliation.index');
+    Route::post('bank-reconciliation/begin', [BankReconciliationController::class, 'begin'])->name('bank-reconciliation.begin');
+    Route::post('bank-reconciliation/store-transactions', [BankReconciliationController::class, 'storeBankTransactions'])->name('bank-reconciliation.store-transactions');
+    Route::post('bank-reconciliation/reconcile', [BankReconciliationController::class, 'reconcile'])->name('bank-reconciliation.reconcile');
+    Route::post('bank-reconciliation/auto-match', [BankReconciliationController::class, 'autoMatch'])->name('bank-reconciliation.auto-match');
+    Route::get('bank-reconciliation/summary', [BankReconciliationController::class, 'summary'])->name('bank-reconciliation.summary');
+});
+
+// Journal Entry Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::get('journal-entries', [JournalEntryController::class, 'index'])->name('journal-entries.web.index');
+    Route::get('journal-entries/create', [JournalEntryController::class, 'create'])->name('journal-entries.web.create');
+    Route::post('journal-entries', [JournalEntryController::class, 'store'])->name('journal-entries.web.store');
+    Route::get('journal-entries/{id}', [JournalEntryController::class, 'show'])->name('journal-entries.web.show');
 });
 
 // Health check route

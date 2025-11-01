@@ -176,4 +176,87 @@ class CustomerController extends Controller
         $status = $customer->is_active ? 'activated' : 'deactivated';
         return back()->with('success', "Customer {$status} successfully.");
     }
+
+    /**
+     * Show bulk create form
+     */
+    public function bulkCreate()
+    {
+        return view('customers.bulk-create');
+    }
+
+    /**
+     * Store multiple customers at once
+     */
+    public function bulkStore(Request $request)
+    {
+        // Filter out empty rows before validation
+        $customers = collect($request->customers)->filter(function ($customer) {
+            return !empty($customer['name']) && trim($customer['name']) !== '';
+        })->values()->toArray();
+
+        if (empty($customers)) {
+            return redirect()->back()
+                ->withErrors(['customers' => 'Please enter at least one customer with a name.'])
+                ->withInput();
+        }
+
+        // Custom validation with filtered customers
+        $request->merge(['customers' => $customers]);
+        
+        $request->validate([
+            'customers' => 'required|array|min:1',
+            'customers.*.name' => 'required|string|max:255',
+            'customers.*.email' => 'nullable|email|distinct',
+            'customers.*.phone' => 'nullable|string|max:20',
+            'customers.*.address' => 'nullable|string|max:500',
+            'customers.*.company' => 'nullable|string|max:255',
+            'customers.*.contact_person' => 'nullable|string|max:255',
+            'customers.*.notes' => 'nullable|string|max:1000',
+        ]);
+
+        $created = 0;
+        $skipped = 0;
+        
+        foreach ($customers as $row) {
+            // Ensure unique email if provided
+            if (!empty($row['email'])) {
+                if (Customer::where('email', $row['email'])->exists()) {
+                    $skipped++;
+                    continue; // skip duplicates silently
+                }
+            }
+
+            // Handle is_active checkbox (can be "0", "1", or not set)
+            $isActive = true; // default
+            if (isset($row['is_active'])) {
+                $isActive = in_array($row['is_active'], ['1', 1, true, 'true'], true);
+            }
+
+            try {
+                Customer::create([
+                    'name' => $row['name'],
+                    'email' => $row['email'] ?? null,
+                    'phone' => $row['phone'] ?? null,
+                    'address' => $row['address'] ?? null,
+                    'company' => $row['company'] ?? null,
+                    'contact_person' => $row['contact_person'] ?? null,
+                    'notes' => $row['notes'] ?? null,
+                    'is_active' => $isActive,
+                ]);
+
+                $created++;
+            } catch (\Exception $e) {
+                $skipped++;
+                continue;
+            }
+        }
+
+        $message = $created . ' customer(s) created successfully.';
+        if ($skipped > 0) {
+            $message .= " ($skipped customer(s) skipped due to duplicates or errors)";
+        }
+
+        return redirect()->route('customers.web.index')->with('success', $message);
+    }
 }

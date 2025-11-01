@@ -125,6 +125,9 @@
                                 Reference
                             </th>
                             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Source
+                            </th>
+                            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Account Code
                             </th>
                             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -149,12 +152,20 @@
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         @foreach($ledgerEntries as $entry)
-                            <tr class="hover:bg-gray-50 {{ $entry['type'] == 'debit' ? 'bg-blue-50/30' : '' }}">
+                            <tr class="hover:bg-gray-50">
                                 <td class="px-3 py-2 whitespace-nowrap">
                                     <div class="text-xs text-gray-900">{{ \Carbon\Carbon::parse($entry['date'])->format('M d, Y') }}</div>
                                 </td>
                                 <td class="px-3 py-2 whitespace-nowrap">
                                     <div class="text-xs font-mono text-gray-900">{{ $entry['reference'] }}</div>
+                                </td>
+                                <td class="px-3 py-2 whitespace-nowrap">
+                                    <span class="px-2 py-1 text-xs font-medium rounded
+                                        {{ $entry['source'] == 'Journal' ? 'bg-blue-100 text-blue-800' : '' }}
+                                        {{ $entry['source'] == 'Manual Entry' ? 'bg-green-100 text-green-800' : '' }}
+                                        {{ $entry['source'] == 'Payment' ? 'bg-purple-100 text-purple-800' : '' }}">
+                                        {{ $entry['source'] ?? 'Unknown' }}
+                                    </span>
                                 </td>
                                 <td class="px-3 py-2 whitespace-nowrap">
                                     <div class="text-xs font-mono font-medium text-gray-900">{{ $entry['account_code'] }}</div>
@@ -194,7 +205,7 @@
                     </tbody>
                     <tfoot class="bg-gray-50">
                         <tr>
-                            <td colspan="5" class="px-3 py-2 text-right text-xs font-semibold text-gray-900">
+                            <td colspan="6" class="px-3 py-2 text-right text-xs font-semibold text-gray-900">
                                 Totals:
                             </td>
                             <td class="px-3 py-2 text-right text-xs font-semibold text-green-700">

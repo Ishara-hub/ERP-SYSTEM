@@ -10,6 +10,7 @@ use App\Models\Item;
 use App\Models\Account;
 use App\Models\Transaction;
 use App\Models\StockMovement;
+use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use DB;
@@ -149,29 +150,20 @@ class InvoiceController extends Controller
                     $item = Item::find($lineItem->item_id);
                     
                     if ($item && $item->isInventoryItem()) {
-                        // Check if sufficient inventory
-                        if ($item->on_hand < $lineItem->quantity) {
-                            throw new \Exception("Insufficient inventory for item: {$item->item_name}. Available: {$item->on_hand}, Required: {$lineItem->quantity}");
-                        }
-
-                        // Deduct quantity from inventory
-                        $item->on_hand -= $lineItem->quantity;
-                        $item->save();
-
-                        // Calculate cost for COGS
+                        // Calculate cost for COGS before inventory update
                         $lineItemCost = $item->cost * $lineItem->quantity;
                         $totalCostOfGoodsSold += $lineItemCost;
 
-                        // Record stock movement
-                        StockMovement::create([
-                            'item_id' => $item->id,
-                            'quantity' => -$lineItem->quantity, // Negative for deduction
-                            'type' => 'sale',
-                            'source_document' => 'invoice',
-                            'source_document_id' => $invoice->id,
-                            'transaction_date' => $invoice->date,
-                            'description' => "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}",
-                        ]);
+                        // Record inventory sale using InventoryService
+                        $description = "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}";
+                        InventoryService::recordSale(
+                            $item,
+                            $lineItem->quantity,
+                            'invoice',
+                            $invoice->id,
+                            $invoice->date,
+                            $description
+                        );
                     }
                 }
             }
