@@ -56,11 +56,18 @@ class BankReconciliationController extends Controller
                 ->get();
 
             // Get unreconciled payments from system
+            // Exclude payments that already have a BankTransaction to avoid duplicates
+            $paymentIdsWithBankTransactions = BankTransaction::whereNotNull('payment_id')
+                ->where('bank_account_id', $selectedAccountId)
+                ->pluck('payment_id')
+                ->toArray();
+            
             $unreconciledPayments = Payment::where('bank_account_id', $selectedAccountId)
                 ->where(function($query) {
                     $query->where('reconciled', false)
                           ->orWhereNull('reconciled');
                 })
+                ->whereNotIn('id', $paymentIdsWithBankTransactions)
                 ->orderBy('payment_date', 'desc')
                 ->get();
         }

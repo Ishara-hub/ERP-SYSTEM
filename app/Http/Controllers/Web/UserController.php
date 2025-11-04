@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\Api\Users\UsersApiController;
 use App\Models\User;
 use Spatie\Permission\Models\Role;
 use Illuminate\Http\Request;
@@ -12,20 +11,11 @@ use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
-    protected $apiController;
-
-    public function __construct()
-    {
-        // Use your existing API controller logic
-        $this->apiController = new UsersApiController();
-    }
-
     /**
      * Display a listing of the resource.
      */
     public function index(Request $request)
     {
-        // Direct model access for better performance
         $query = User::with('roles');
 
         // Search functionality
@@ -73,17 +63,26 @@ class UserController extends Controller
      */
     public function store(Request $request)
     {
-        // Use your existing API logic
-        $apiResponse = $this->apiController->store($request);
-        $data = $apiResponse->getData();
-        
-        if ($data->success) {
-            return redirect()->route('users.index')
-                ->with('success', 'User created successfully.');
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+            'roles' => 'array',
+            'roles.*' => 'exists:roles,id'
+        ]);
+
+        $user = User::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+        ]);
+
+        if ($request->has('roles')) {
+            $user->assignRole($request->roles);
         }
-        
-        return back()->withErrors($data->errors ?? ['error' => 'Failed to create user'])
-                    ->withInput();
+
+        return redirect()->route('users.index')
+            ->with('success', 'User created successfully.');
     }
 
     /**
@@ -91,17 +90,8 @@ class UserController extends Controller
      */
     public function show(User $user)
     {
-        // Use your existing API logic
-        $apiResponse = $this->apiController->show($user);
-        $data = $apiResponse->getData();
-        
-        if ($data->success) {
-            $user = $data->data->user;
-            return view('users.show', compact('user'));
-        }
-        
-        return redirect()->route('users.index')
-            ->with('error', 'User not found.');
+        $user->load('roles');
+        return view('users.show', compact('user'));
     }
 
     /**
@@ -119,17 +109,31 @@ class UserController extends Controller
      */
     public function update(Request $request, User $user)
     {
-        // Use your existing API logic
-        $apiResponse = $this->apiController->update($request, $user);
-        $data = $apiResponse->getData();
-        
-        if ($data->success) {
-            return redirect()->route('users.index')
-                ->with('success', 'User updated successfully.');
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+            'password' => 'nullable|string|min:8|confirmed',
+            'roles' => 'array',
+            'roles.*' => 'exists:roles,id'
+        ]);
+
+        $user->update([
+            'name' => $request->name,
+            'email' => $request->email,
+        ]);
+
+        if ($request->filled('password')) {
+            $user->update([
+                'password' => Hash::make($request->password),
+            ]);
         }
-        
-        return back()->withErrors($data->errors ?? ['error' => 'Failed to update user'])
-                    ->withInput();
+
+        if ($request->has('roles')) {
+            $user->syncRoles($request->roles);
+        }
+
+        return redirect()->route('users.index')
+            ->with('success', 'User updated successfully.');
     }
 
     /**
@@ -137,16 +141,15 @@ class UserController extends Controller
      */
     public function destroy(User $user)
     {
-        // Use your existing API logic
-        $apiResponse = $this->apiController->destroy($user);
-        $data = $apiResponse->getData();
-        
-        if ($data->success) {
+        // Prevent deletion of the last admin user
+        if ($user->hasRole('admin') && User::role('admin')->count() <= 1) {
             return redirect()->route('users.index')
-                ->with('success', 'User deleted successfully.');
+                ->with('error', 'Cannot delete the last admin user.');
         }
-        
+
+        $user->delete();
+
         return redirect()->route('users.index')
-            ->with('error', 'Failed to delete user.');
+            ->with('success', 'User deleted successfully.');
     }
 }

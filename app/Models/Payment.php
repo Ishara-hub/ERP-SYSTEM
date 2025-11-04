@@ -89,6 +89,11 @@ class Payment extends Model
         return $this->belongsTo(Account::class, 'bank_account_id');
     }
 
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(Transaction::class, 'transaction_id');
+    }
+
     protected static function boot()
     {
         parent::boot();

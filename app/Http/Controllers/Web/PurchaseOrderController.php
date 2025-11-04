@@ -410,4 +410,13 @@ class PurchaseOrderController extends Controller
             return back()->with('error', 'Failed to receive inventory: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Print purchase order
+     */
+    public function print(PurchaseOrder $purchaseOrder): View
+    {
+        $purchaseOrder->load(['supplier', 'items.item']);
+        return view('purchase-orders.print', compact('purchaseOrder'));
+    }
 }

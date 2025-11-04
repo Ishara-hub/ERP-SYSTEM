@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\Journal;
+use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -189,15 +190,8 @@ class WriteCheckController extends Controller
 
             DB::commit();
 
-            $redirectRoute = route('accounts.write-check.index');
-            if ($request->has('save_and_close')) {
-                return redirect($redirectRoute)
-                    ->with('success', "Check #{$request->check_number} for \${$finalAmount} has been created successfully.");
-            } else {
-                // Save & New - redirect back to form with new check number
-                return redirect($redirectRoute)
-                    ->with('success', "Check #{$request->check_number} for \${$finalAmount} has been created successfully. Creating new check...");
-            }
+            // Redirect to print voucher
+            return redirect()->route('accounts.write-check.voucher', $payment->id);
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->withErrors(['error' => 'Failed to create check: ' . $e->getMessage()])->withInput();
@@ -221,5 +215,23 @@ class WriteCheckController extends Controller
             'account_code' => $account->account_code,
             'account_name' => $account->account_name,
         ]);
+    }
+
+    /**
+     * Print payment voucher
+     */
+    public function printVoucher($id)
+    {
+        $payment = Payment::with(['bankAccount', 'expenseAccount'])
+            ->findOrFail($id);
+
+        // Get all journals for this check by matching check number in descriptions
+        $journals = Journal::whereHas('transaction', function($query) use ($payment) {
+                $query->where('description', 'like', 'Check #' . $payment->check_number . '%');
+            })
+            ->with(['debitAccount', 'creditAccount'])
+            ->get();
+
+        return view('accounts.payment-voucher', compact('payment', 'journals'));
     }
 }

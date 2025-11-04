@@ -88,4 +88,43 @@ class InventoryService
         
         return true;
     }
+    
+    /**
+     * Record inventory adjustment.
+     */
+    public static function recordAdjustment($item, $quantity, $reason = null, $date = null, $description = null)
+    {
+        // Only process inventory items
+        if (!in_array($item->item_type, [Item::INVENTORY_PART, Item::INVENTORY_ASSEMBLY])) {
+            return null;
+        }
+        
+        DB::transaction(function () use ($item, $quantity, $reason, $date, $description) {
+            // Update item on-hand quantity and total value
+            $newOnHand = $item->on_hand + $quantity;
+            $valueChange = $quantity * $item->cost;
+            $newTotalValue = $item->total_value + $valueChange;
+            
+            $item->update([
+                'on_hand' => $newOnHand,
+                'total_value' => max(0, $newTotalValue),
+                'as_of_date' => $date ?? now(),
+            ]);
+            
+            // Create stock movement record
+            StockMovement::create([
+                'item_id' => $item->id,
+                'quantity' => $quantity,
+                'type' => 'adjustment',
+                'source_document' => 'adjustment',
+                'source_document_id' => null,
+                'transaction_date' => $date ?? now(),
+                'description' => $description ?? ($quantity > 0 ? "Inventory adjustment - Increase" : "Inventory adjustment - Decrease"),
+                'reference_type' => 'adjustment',
+                'reference_id' => null,
+            ]);
+        });
+        
+        return true;
+    }
 }

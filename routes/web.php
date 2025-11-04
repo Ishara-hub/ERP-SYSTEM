@@ -15,6 +15,8 @@ use App\Http\Controllers\Web\EnterBillController;
 use App\Http\Controllers\Web\PayBillController;
 use App\Http\Controllers\Web\BankReconciliationController;
 use App\Http\Controllers\Web\JournalEntryController;
+use App\Http\Controllers\Web\InventoryController;
+use App\Http\Controllers\Web\ReportsController;
 use App\Http\Controllers\Invoices\InvoiceController;
 use App\Http\Controllers\POS\POSController;
 use App\Http\Controllers\SalesOrderController;
@@ -158,6 +160,7 @@ Route::middleware('auth')->group(function () {
         'update' => 'purchase-orders.web.update',
         'destroy' => 'purchase-orders.web.destroy',
     ]);
+    Route::get('purchase-orders/{purchaseOrder}/print', [PurchaseOrderController::class, 'print'])->name('purchase-orders.web.print');
     Route::post('purchase-orders/{purchaseOrder}/update-status', [PurchaseOrderController::class, 'updateStatus'])->name('purchase-orders.web.update-status');
     Route::get('purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.web.receive');
     Route::post('purchase-orders/{purchaseOrder}/receive-inventory', [PurchaseOrderController::class, 'receiveInventory'])->name('purchase-orders.web.receive-inventory');
@@ -279,6 +282,7 @@ Route::middleware('auth')->group(function () {
     Route::get('accounts/write-check', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'index'])->name('accounts.write-check.index');
     Route::post('accounts/write-check', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'store'])->name('accounts.write-check.store');
     Route::get('accounts/write-check/balance', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'getAccountBalance'])->name('accounts.write-check.balance');
+    Route::get('accounts/write-check/voucher/{id}', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'printVoucher'])->name('accounts.write-check.voucher');
 
     // Main Chart of Accounts Resource Routes
     Route::resource('accounts', ChartOfAccountsController::class);
@@ -304,6 +308,29 @@ Route::middleware('auth')->group(function () {
     Route::get('journal-entries/create', [JournalEntryController::class, 'create'])->name('journal-entries.web.create');
     Route::post('journal-entries', [JournalEntryController::class, 'store'])->name('journal-entries.web.store');
     Route::get('journal-entries/{id}', [JournalEntryController::class, 'show'])->name('journal-entries.web.show');
+});
+
+// Inventory Management Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::get('inventory', [InventoryController::class, 'index'])->name('inventory.index');
+    Route::get('inventory/movements', [InventoryController::class, 'movements'])->name('inventory.movements');
+    Route::get('inventory/adjust', [InventoryController::class, 'adjustmentForm'])->name('inventory.adjustment-form');
+    Route::post('inventory/adjust', [InventoryController::class, 'adjust'])->name('inventory.adjust');
+    Route::get('inventory/{item}', [InventoryController::class, 'show'])->name('inventory.show');
+});
+
+// Reports Routes (Protected by authentication)
+Route::middleware('auth')->group(function () {
+    Route::get('reports', [ReportsController::class, 'index'])->name('reports.index');
+    Route::get('reports/sales-by-customer', [ReportsController::class, 'salesByCustomer'])->name('reports.sales-by-customer');
+    Route::get('reports/sales-by-item', [ReportsController::class, 'salesByItem'])->name('reports.sales-by-item');
+    Route::get('reports/sales-trend', [ReportsController::class, 'salesTrend'])->name('reports.sales-trend');
+    Route::get('reports/purchase-by-supplier', [ReportsController::class, 'purchaseBySupplier'])->name('reports.purchase-by-supplier');
+    Route::get('reports/purchase-by-item', [ReportsController::class, 'purchaseByItem'])->name('reports.purchase-by-item');
+    Route::get('reports/invoice-summary', [ReportsController::class, 'invoiceSummary'])->name('reports.invoice-summary');
+    Route::get('reports/income-summary', [ReportsController::class, 'incomeSummary'])->name('reports.income-summary');
+    Route::get('reports/item-profitability', [ReportsController::class, 'itemProfitability'])->name('reports.item-profitability');
+    Route::get('reports/export', [ReportsController::class, 'export'])->name('reports.export');
 });
 
 // Health check route
