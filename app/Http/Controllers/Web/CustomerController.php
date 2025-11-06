@@ -206,8 +206,8 @@ class CustomerController extends Controller
         
         $request->validate([
             'customers' => 'required|array|min:1',
-            'customers.*.name' => 'required|string|max:255',
-            'customers.*.email' => 'nullable|email|distinct',
+            'customers.*.name' => 'required|string|max:255', // Duplicate names are allowed
+            'customers.*.email' => 'nullable|email|distinct', // Only emails need to be distinct in the batch
             'customers.*.phone' => 'nullable|string|max:20',
             'customers.*.address' => 'nullable|string|max:500',
             'customers.*.company' => 'nullable|string|max:255',
@@ -234,6 +234,7 @@ class CustomerController extends Controller
             }
 
             try {
+                // Duplicate names are allowed - no validation prevents them
                 Customer::create([
                     'name' => $row['name'],
                     'email' => $row['email'] ?? null,
@@ -247,6 +248,8 @@ class CustomerController extends Controller
 
                 $created++;
             } catch (\Exception $e) {
+                // Skip any errors (including duplicate emails which have unique constraint)
+                // Duplicate names are allowed and will not cause errors
                 $skipped++;
                 continue;
             }
