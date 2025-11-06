@@ -5,7 +5,8 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class CustomerController extends Controller
 {
@@ -60,7 +61,7 @@ class CustomerController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:customers,email',
+            'email' => 'nullable|email', // Duplicate emails are allowed
             'phone' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
             'company' => 'nullable|string|max:255',
@@ -115,11 +116,7 @@ class CustomerController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => [
-                'required',
-                'email',
-                Rule::unique('customers', 'email')->ignore($customer->id)
-            ],
+            'email' => 'nullable|email', // Duplicate emails are allowed
             'phone' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
             'company' => 'nullable|string|max:255',
@@ -201,13 +198,11 @@ class CustomerController extends Controller
                 ->withInput();
         }
 
-        // Custom validation with filtered customers
-        $request->merge(['customers' => $customers]);
-        
-        $request->validate([
+        // Custom validation with filtered customers using Validator::make
+        $validator = Validator::make(['customers' => $customers], [
             'customers' => 'required|array|min:1',
             'customers.*.name' => 'required|string|max:255', // Duplicate names are allowed
-            'customers.*.email' => 'nullable|email|distinct', // Only emails need to be distinct in the batch
+            'customers.*.email' => 'nullable|email', // Duplicate emails are allowed (just like names)
             'customers.*.phone' => 'nullable|string|max:20',
             'customers.*.address' => 'nullable|string|max:500',
             'customers.*.company' => 'nullable|string|max:255',
@@ -215,17 +210,19 @@ class CustomerController extends Controller
             'customers.*.notes' => 'nullable|string|max:1000',
         ]);
 
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
         $created = 0;
         $skipped = 0;
         
-        foreach ($customers as $row) {
-            // Ensure unique email if provided
-            if (!empty($row['email'])) {
-                if (Customer::where('email', $row['email'])->exists()) {
-                    $skipped++;
-                    continue; // skip duplicates silently
-                }
-            }
+        foreach ($customers as $index => $row) {
+            $email = !empty($row['email']) ? trim($row['email']) : null;
+            
+            // Duplicate emails are allowed - no validation prevents them (just like duplicate names)
 
             // Handle is_active checkbox (can be "0", "1", or not set)
             $isActive = true; // default
@@ -236,28 +233,29 @@ class CustomerController extends Controller
             try {
                 // Duplicate names are allowed - no validation prevents them
                 Customer::create([
-                    'name' => $row['name'],
-                    'email' => $row['email'] ?? null,
-                    'phone' => $row['phone'] ?? null,
-                    'address' => $row['address'] ?? null,
-                    'company' => $row['company'] ?? null,
-                    'contact_person' => $row['contact_person'] ?? null,
-                    'notes' => $row['notes'] ?? null,
+                    'name' => trim($row['name']),
+                    'email' => $email,
+                    'phone' => !empty($row['phone']) ? trim($row['phone']) : null,
+                    'address' => !empty($row['address']) ? trim($row['address']) : null,
+                    'company' => !empty($row['company']) ? trim($row['company']) : null,
+                    'contact_person' => !empty($row['contact_person']) ? trim($row['contact_person']) : null,
+                    'notes' => !empty($row['notes']) ? trim($row['notes']) : null,
                     'is_active' => $isActive,
                 ]);
 
                 $created++;
             } catch (\Exception $e) {
-                // Skip any errors (including duplicate emails which have unique constraint)
-                // Duplicate names are allowed and will not cause errors
+                // Handle any errors (should be rare now that duplicate emails/names are allowed)
                 $skipped++;
+                // Log error for debugging
+                Log::warning("Failed to create customer at row " . ($index + 1) . ": " . $e->getMessage());
                 continue;
             }
         }
 
         $message = $created . ' customer(s) created successfully.';
         if ($skipped > 0) {
-            $message .= " ($skipped customer(s) skipped due to duplicates or errors)";
+            $message .= " ($skipped customer(s) skipped due to errors)";
         }
 
         return redirect()->route('customers.web.index')->with('success', $message);

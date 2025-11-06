@@ -74,7 +74,7 @@
                             </tr>
                         </thead>
                         <tbody id="suppliersBody" class="bg-white">
-                            @for($i = 0; $i < 20; $i++)
+                            @for($i = 0; $i < 100; $i++)
                             <tr class="supplier-row hover:bg-blue-50">
                                 <td class="px-2 py-1 text-center text-xs text-gray-500 border border-gray-300 bg-gray-50 select-none">{{ $i + 1 }}</td>
                                 <td class="px-1 py-0 border border-gray-300">
@@ -141,7 +141,7 @@
 
             <div class="mt-4 flex justify-between items-center">
                 <div class="text-sm text-gray-600">
-                    <span id="rowCount">20</span> rows available
+                    <span id="rowCount">100</span> rows available
                 </div>
                 <div class="flex space-x-3">
                     <button type="button" id="clearAll" class="inline-flex items-center px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 text-sm">

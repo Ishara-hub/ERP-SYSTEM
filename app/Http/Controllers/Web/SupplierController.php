@@ -7,6 +7,7 @@ use App\Models\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Validator;
 
 class SupplierController extends Controller
 {
@@ -76,7 +77,7 @@ class SupplierController extends Controller
             'name' => 'required|string|max:255',
             'company_name' => 'nullable|string|max:255',
             'contact_person' => 'nullable|string|max:255',
-            'email' => 'required|email|unique:suppliers,email',
+            'email' => 'nullable|email', // Duplicate emails are allowed
             'phone' => 'nullable|string|max:20',
             'address' => 'nullable|string',
             'website' => 'nullable|url',
@@ -120,7 +121,7 @@ class SupplierController extends Controller
             'name' => 'required|string|max:255',
             'company_name' => 'nullable|string|max:255',
             'contact_person' => 'nullable|string|max:255',
-            'email' => 'required|email|unique:suppliers,email,' . $supplier->id,
+            'email' => 'nullable|email', // Duplicate emails are allowed
             'phone' => 'nullable|string|max:20',
             'address' => 'nullable|string',
             'website' => 'nullable|url',
@@ -191,15 +192,13 @@ class SupplierController extends Controller
                 ->withInput();
         }
 
-        // Custom validation with filtered suppliers
-        $request->merge(['suppliers' => $suppliers]);
-        
-        $request->validate([
+        // Custom validation with filtered suppliers using Validator::make
+        $validator = Validator::make(['suppliers' => $suppliers], [
             'suppliers' => 'required|array|min:1',
-            'suppliers.*.name' => 'required|string|max:255',
+            'suppliers.*.name' => 'required|string|max:255', // Duplicate names are allowed
             'suppliers.*.company_name' => 'nullable|string|max:255',
             'suppliers.*.contact_person' => 'nullable|string|max:255',
-            'suppliers.*.email' => 'nullable|email|distinct',
+            'suppliers.*.email' => 'nullable|email', // Duplicate emails are allowed (just like names)
             'suppliers.*.phone' => 'nullable|string|max:20',
             'suppliers.*.address' => 'nullable|string',
             'suppliers.*.website' => 'nullable|url',
@@ -210,17 +209,19 @@ class SupplierController extends Controller
             'suppliers.*.notes' => 'nullable|string',
         ]);
 
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
         $created = 0;
         $skipped = 0;
         
-        foreach ($suppliers as $row) {
-            // Ensure unique email if provided
-            if (!empty($row['email'])) {
-                if (Supplier::where('email', $row['email'])->exists()) {
-                    $skipped++;
-                    continue; // skip duplicates silently
-                }
-            }
+        foreach ($suppliers as $index => $row) {
+            $email = !empty($row['email']) ? trim($row['email']) : null;
+            
+            // Duplicate emails are allowed - no validation prevents them (just like duplicate names)
 
             // Handle is_active checkbox (can be "0", "1", or not set)
             $isActive = true; // default
@@ -229,25 +230,29 @@ class SupplierController extends Controller
             }
 
             try {
+                // Duplicate names are allowed - no validation prevents them
                 Supplier::create([
-                    'name' => $row['name'],
-                    'company_name' => $row['company_name'] ?? null,
-                    'contact_person' => $row['contact_person'] ?? null,
-                    'email' => $row['email'] ?? null,
-                    'phone' => $row['phone'] ?? null,
-                    'address' => $row['address'] ?? null,
-                    'website' => $row['website'] ?? null,
-                    'tax_id' => $row['tax_id'] ?? null,
-                    'payment_terms' => $row['payment_terms'] ?? null,
-                    'credit_limit' => $row['credit_limit'] ?? null,
-                    'currency' => $row['currency'] ?? null,
-                    'notes' => $row['notes'] ?? null,
+                    'name' => trim($row['name']),
+                    'company_name' => !empty($row['company_name']) ? trim($row['company_name']) : null,
+                    'contact_person' => !empty($row['contact_person']) ? trim($row['contact_person']) : null,
+                    'email' => $email,
+                    'phone' => !empty($row['phone']) ? trim($row['phone']) : null,
+                    'address' => !empty($row['address']) ? trim($row['address']) : null,
+                    'website' => !empty($row['website']) ? trim($row['website']) : null,
+                    'tax_id' => !empty($row['tax_id']) ? trim($row['tax_id']) : null,
+                    'payment_terms' => !empty($row['payment_terms']) ? trim($row['payment_terms']) : null,
+                    'credit_limit' => !empty($row['credit_limit']) ? $row['credit_limit'] : null,
+                    'currency' => !empty($row['currency']) ? trim($row['currency']) : 'USD',
+                    'notes' => !empty($row['notes']) ? trim($row['notes']) : null,
                     'is_active' => $isActive,
                 ]);
 
                 $created++;
             } catch (\Exception $e) {
+                // Handle any errors (should be rare now that duplicate emails/names are allowed)
                 $skipped++;
+                // Log error for debugging
+                \Log::warning("Failed to create supplier at row " . ($index + 1) . ": " . $e->getMessage());
                 continue;
             }
         }
