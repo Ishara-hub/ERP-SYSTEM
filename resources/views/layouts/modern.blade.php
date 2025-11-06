@@ -14,7 +14,7 @@
     <!-- Styles -->
     <link href="{{ asset('css/app.css') }}" rel="stylesheet">
     @stack('styles')
-    
+    <!-- DEBUG: {{ mix('css/app.css') }} -->
     <style>
         :root {
             --primary-color: #3b82f6;

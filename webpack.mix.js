@@ -1,25 +1,26 @@
 const mix = require('laravel-mix');
 
-/*
- |--------------------------------------------------------------------------
- | Mix Asset Management
- |--------------------------------------------------------------------------
- |
- | Mix provides a clean, fluent API for defining some Webpack build steps
- | for your Laravel applications. By default, we are compiling the CSS
- | file for the application as well as bundling up all the JS files.
- |
- */
+mix
+    .setPublicPath('public')
+    .js('resources/js/app.js', 'public/js')
+    .postCss('resources/css/app.css', 'public/css', [
+        require('tailwindcss'),
+        require('autoprefixer'),
+    ])
+    .version()
+    .options({
+        processCssUrls: false
+    });
 
-mix.js('resources/js/app.js', 'public/js')
-   .postCss('resources/css/app.css', 'public/css', [
-       require('tailwindcss'),
-       require('autoprefixer'),
-   ])
-   .version();
+// Set the public path for assets
+mix.setResourceRoot('/ERP-SYSTEM/');
 
-if (mix.inProduction()) {
-    mix.version();
+// Override the mix public path
+if (!mix.inProduction()) {
+    mix.options({
+        hmrOptions: {
+            host: '64.23.150.233',
+            port: 8080
+        }
+    });
 }
-
-
