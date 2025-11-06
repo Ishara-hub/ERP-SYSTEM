@@ -56,6 +56,13 @@ class ChartOfAccountsController extends Controller
             Account::EQUITY => 'Equity',
             Account::INCOME => 'Income',
             Account::EXPENSE => 'Expenses',
+            Account::ACCOUNTS_RECEIVABLE => 'Accounts Receivable',
+            Account::OTHER_CURRENT_ASSET => 'Other Current Asset',
+            Account::FIXED_ASSET => 'Fixed Asset',
+            Account::ACCOUNTS_PAYABLE => 'Accounts Payable',
+            Account::OTHER_CURRENT_LIABILITY => 'Other Current Liability',
+            Account::COST_OF_GOODS_SOLD => 'Cost of Goods Sold',
+            Account::BANK => 'Bank',
         ];
 
         // Get parent accounts for hierarchical selection
@@ -84,6 +91,13 @@ class ChartOfAccountsController extends Controller
             Account::EQUITY => 'Equity',
             Account::INCOME => 'Income',
             Account::EXPENSE => 'Expenses',
+            Account::ACCOUNTS_RECEIVABLE => 'Accounts Receivable',
+            Account::OTHER_CURRENT_ASSET => 'Other Current Asset',
+            Account::FIXED_ASSET => 'Fixed Asset',
+            Account::ACCOUNTS_PAYABLE => 'Accounts Payable',
+            Account::OTHER_CURRENT_LIABILITY => 'Other Current Liability',
+            Account::COST_OF_GOODS_SOLD => 'Cost of Goods Sold',
+            Account::BANK => 'Bank',
         ];
 
         // Get all parent accounts (accounts without parent_id) grouped by type
@@ -112,7 +126,7 @@ class ChartOfAccountsController extends Controller
         $request->validate([
             'account_code' => 'required|string|max:20|unique:accounts,account_code',
             'account_name' => 'required|string|max:255',
-            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity,Accounts Receivable,Other Current Asset,Fixed Asset,Accounts Payable,Other Current Liability,Cost of Goods Sold,Bank',
             'parent_id' => [
                 'nullable',
                 'exists:accounts,id',
@@ -170,6 +184,13 @@ class ChartOfAccountsController extends Controller
             Account::EQUITY => 'Equity',
             Account::INCOME => 'Income',
             Account::EXPENSE => 'Expenses',
+            Account::ACCOUNTS_RECEIVABLE => 'Accounts Receivable',
+            Account::OTHER_CURRENT_ASSET => 'Other Current Asset',
+            Account::FIXED_ASSET => 'Fixed Asset',
+            Account::ACCOUNTS_PAYABLE => 'Accounts Payable',
+            Account::OTHER_CURRENT_LIABILITY => 'Other Current Liability',
+            Account::COST_OF_GOODS_SOLD => 'Cost of Goods Sold',
+            Account::BANK => 'Bank',
         ];
 
         // Get parent accounts, excluding the current account and its children
@@ -204,7 +225,7 @@ class ChartOfAccountsController extends Controller
                 Rule::unique('accounts', 'account_code')->ignore($account->id)
             ],
             'account_name' => 'required|string|max:255',
-            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity,Accounts Receivable,Other Current Asset,Fixed Asset,Accounts Payable,Other Current Liability,Cost of Goods Sold,Bank',
             'parent_id' => [
                 'nullable',
                 'exists:accounts,id',
@@ -312,6 +333,13 @@ class ChartOfAccountsController extends Controller
             Account::EQUITY => '3000',
             Account::INCOME => '4000',
             Account::EXPENSE => '5000',
+            Account::ACCOUNTS_RECEIVABLE => '1100',
+            Account::OTHER_CURRENT_ASSET => '1200',
+            Account::FIXED_ASSET => '1300',
+            Account::BANK => '1400',
+            Account::ACCOUNTS_PAYABLE => '2100',
+            Account::OTHER_CURRENT_LIABILITY => '2200',
+            Account::COST_OF_GOODS_SOLD => '5100',
         ];
 
         $prefix = $prefixes[$accountType] ?? '0000';
@@ -411,7 +439,7 @@ class ChartOfAccountsController extends Controller
         $request->validate([
             'account_code' => 'nullable|string|max:20|unique:accounts,account_code',
             'account_name' => 'required|string|max:255',
-            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity,Accounts Receivable,Other Current Asset,Fixed Asset,Accounts Payable,Other Current Liability,Cost of Goods Sold,Bank',
             'opening_balance' => 'nullable|numeric',
             'description' => 'nullable|string|max:1000',
             'is_active' => 'boolean',
@@ -443,7 +471,7 @@ class ChartOfAccountsController extends Controller
         $request->validate([
             'account_code' => 'nullable|string|max:20|unique:accounts,account_code',
             'account_name' => 'required|string|max:255',
-            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+            'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity,Accounts Receivable,Other Current Asset,Fixed Asset,Accounts Payable,Other Current Liability,Cost of Goods Sold,Bank',
             'parent_id' => [
                 'required',
                 'exists:accounts,id',

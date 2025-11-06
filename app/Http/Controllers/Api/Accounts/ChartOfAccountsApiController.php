@@ -87,7 +87,7 @@ class ChartOfAccountsApiController extends ApiController
             $validated = $request->validate([
                 'account_code' => 'required|string|max:20|unique:accounts,account_code',
                 'account_name' => 'required|string|max:255',
-                'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+                'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity,Accounts Receivable,Other Current Asset,Fixed Asset,Accounts Payable,Other Current Liability,Cost of Goods Sold,Bank',
                 'parent_id' => [
                     'nullable',
                     'exists:accounts,id',
@@ -154,7 +154,7 @@ class ChartOfAccountsApiController extends ApiController
                     Rule::unique('accounts', 'account_code')->ignore($account->id)
                 ],
                 'account_name' => 'required|string|max:255',
-                'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity',
+                'account_type' => 'required|in:Asset,Liability,Income,Expense,Equity,Accounts Receivable,Other Current Asset,Fixed Asset,Accounts Payable,Other Current Liability,Cost of Goods Sold,Bank',
                 'parent_id' => [
                     'nullable',
                     'exists:accounts,id',

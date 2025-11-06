@@ -35,11 +35,21 @@ class Account extends Model
     const EQUITY = 'Equity';
     const INCOME = 'Income';
     const EXPENSE = 'Expense';
-
-    // Account Subtypes for Assets
-    const CURRENT_ASSET = 'Current Asset';
+    
+    // New Account Types
+    const ACCOUNTS_RECEIVABLE = 'Accounts Receivable';
+    const OTHER_CURRENT_ASSET = 'Other Current Asset';
     const FIXED_ASSET = 'Fixed Asset';
+    const ACCOUNTS_PAYABLE = 'Accounts Payable';
+    const OTHER_CURRENT_LIABILITY = 'Other Current Liability';
+    const COST_OF_GOODS_SOLD = 'Cost of Goods Sold';
+    const BANK = 'Bank';
+
+    // Account Subtypes for Assets (deprecated - use new types instead)
+    const CURRENT_ASSET = 'Current Asset';
     const OTHER_ASSET = 'Other Asset';
+    
+    // Note: FIXED_ASSET is already defined above in New Account Types
 
     // Account Subtypes for Liabilities
     const CURRENT_LIABILITY = 'Current Liability';
@@ -104,11 +114,12 @@ class Account extends Model
     public function getAccountTypeColorAttribute(): string
     {
         return match($this->account_type) {
-            self::ASSET => 'text-green-600',
-            self::LIABILITY => 'text-red-600',
+            self::ASSET, self::ACCOUNTS_RECEIVABLE, self::OTHER_CURRENT_ASSET, 
+            self::FIXED_ASSET, self::BANK => 'text-green-600',
+            self::LIABILITY, self::ACCOUNTS_PAYABLE, self::OTHER_CURRENT_LIABILITY => 'text-red-600',
             self::EQUITY => 'text-blue-600',
             self::INCOME => 'text-purple-600',
-            self::EXPENSE => 'text-orange-600',
+            self::EXPENSE, self::COST_OF_GOODS_SOLD => 'text-orange-600',
             default => 'text-gray-600'
         };
     }
@@ -117,11 +128,12 @@ class Account extends Model
     public function getAccountTypeBgColorAttribute(): string
     {
         return match($this->account_type) {
-            self::ASSET => 'bg-green-100',
-            self::LIABILITY => 'bg-red-100',
+            self::ASSET, self::ACCOUNTS_RECEIVABLE, self::OTHER_CURRENT_ASSET, 
+            self::FIXED_ASSET, self::BANK => 'bg-green-100',
+            self::LIABILITY, self::ACCOUNTS_PAYABLE, self::OTHER_CURRENT_LIABILITY => 'bg-red-100',
             self::EQUITY => 'bg-blue-100',
             self::INCOME => 'bg-purple-100',
-            self::EXPENSE => 'bg-orange-100',
+            self::EXPENSE, self::COST_OF_GOODS_SOLD => 'bg-orange-100',
             default => 'bg-gray-100'
         };
     }
