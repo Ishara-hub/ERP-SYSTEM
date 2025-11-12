@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Customers;
 use App\Http\Controllers\Api\ApiController;
 use App\Models\Customer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
 class CustomersApiController extends ApiController
@@ -17,31 +18,43 @@ class CustomersApiController extends ApiController
         try {
             $query = Customer::query();
 
-            // Search functionality
-            if ($request->has('search') && $request->search) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('name', 'like', '%' . $request->search . '%')
-                      ->orWhere('email', 'like', '%' . $request->search . '%')
-                      ->orWhere('phone', 'like', '%' . $request->search . '%');
+            if ($request->filled('search')) {
+                $search = $request->input('search');
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%");
                 });
             }
 
-            // Sort functionality
-            $sortBy = $request->get('sort_by', 'created_at');
-            $sortDirection = $request->get('sort_direction', 'desc');
-            
-            if (in_array($sortBy, ['name', 'email', 'phone', 'created_at'])) {
-                $query->orderBy($sortBy, $sortDirection);
+            if ($request->filled('status')) {
+                if ($request->status === 'active') {
+                    $query->where('is_active', true);
+                } elseif ($request->status === 'inactive') {
+                    $query->where('is_active', false);
+                }
             }
 
-            $customers = $query->paginate(15);
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortDirection = $request->get('sort_direction', 'desc');
+            $allowedSorts = ['name', 'email', 'phone', 'created_at'];
+            if (!in_array($sortBy, $allowedSorts, true)) {
+                $sortBy = 'created_at';
+            }
+            $query->orderBy($sortBy, $sortDirection);
 
-            $data = [
+            $customers = $query->paginate((int) $request->get('per_page', 15))->withQueryString();
+
+            return $this->success([
                 'customers' => $customers,
-                'filters' => $request->only(['search', 'sort_by', 'sort_direction'])
-            ];
-
-            return $this->success($data, 'Customers retrieved successfully');
+                'filters' => $request->only(['search', 'status', 'sort_by', 'sort_direction']),
+                'stats' => [
+                    'total' => Customer::count(),
+                    'active' => Customer::where('is_active', true)->count(),
+                    'inactive' => Customer::where('is_active', false)->count(),
+                ],
+            ], 'Customers retrieved successfully');
         } catch (\Exception $e) {
             return $this->serverError('Failed to retrieve customers: ' . $e->getMessage());
         }
@@ -83,12 +96,25 @@ class CustomersApiController extends ApiController
         try {
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
-                'email' => 'required|email|unique:customers,email',
-                'phone' => 'required|string|max:20',
-                'address' => 'required|string',
+                'email' => 'nullable|email',
+                'phone' => 'nullable|string|max:20',
+                'address' => 'nullable|string|max:500',
+                'company' => 'nullable|string|max:255',
+                'contact_person' => 'nullable|string|max:255',
+                'notes' => 'nullable|string|max:1000',
+                'is_active' => 'boolean',
             ]);
 
-            $customer = Customer::create($validated);
+            $customer = Customer::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'] ?? null,
+                'phone' => $validated['phone'] ?? null,
+                'address' => $validated['address'] ?? null,
+                'company' => $validated['company'] ?? null,
+                'contact_person' => $validated['contact_person'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+                'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            ]);
 
             return $this->success($customer, 'Customer created successfully', 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -119,12 +145,27 @@ class CustomersApiController extends ApiController
         try {
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
-                'email' => ['required', 'email', Rule::unique('customers')->ignore($customer->id)],
-                'phone' => 'required|string|max:20',
-                'address' => 'required|string',
+                'email' => ['nullable', 'email'],
+                'phone' => 'nullable|string|max:20',
+                'address' => 'nullable|string|max:500',
+                'company' => 'nullable|string|max:255',
+                'contact_person' => 'nullable|string|max:255',
+                'notes' => 'nullable|string|max:1000',
+                'is_active' => 'boolean',
             ]);
 
-            $customer->update($validated);
+            $customer->update([
+                'name' => $validated['name'],
+                'email' => $validated['email'] ?? null,
+                'phone' => $validated['phone'] ?? null,
+                'address' => $validated['address'] ?? null,
+                'company' => $validated['company'] ?? null,
+                'contact_person' => $validated['contact_person'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+                'is_active' => array_key_exists('is_active', $validated)
+                    ? (bool) $validated['is_active']
+                    : $customer->is_active,
+            ]);
 
             return $this->success($customer, 'Customer updated successfully');
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -159,10 +200,72 @@ class CustomersApiController extends ApiController
     public function toggleStatus(Customer $customer)
     {
         try {
-            // This can be implemented if we add a status field to customers
-            return $this->success(['message' => 'Status toggle not implemented yet'], 'Status toggle not implemented');
+            $customer->update(['is_active' => !$customer->is_active]);
+
+            $status = $customer->is_active ? 'activated' : 'deactivated';
+            return $this->success($customer->refresh(), "Customer {$status} successfully");
         } catch (\Exception $e) {
             return $this->serverError('Failed to toggle status: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Store multiple customers at once.
+     */
+    public function bulkStore(Request $request)
+    {
+        $customers = collect($request->input('customers', []))
+            ->filter(fn ($customer) => !empty($customer['name']) && trim($customer['name']) !== '')
+            ->map(function ($customer) {
+                return [
+                    'name' => trim($customer['name']),
+                    'email' => !empty($customer['email']) ? trim($customer['email']) : null,
+                    'phone' => !empty($customer['phone']) ? trim($customer['phone']) : null,
+                    'address' => !empty($customer['address']) ? trim($customer['address']) : null,
+                    'company' => !empty($customer['company']) ? trim($customer['company']) : null,
+                    'contact_person' => !empty($customer['contact_person']) ? trim($customer['contact_person']) : null,
+                    'notes' => !empty($customer['notes']) ? trim($customer['notes']) : null,
+                    'is_active' => isset($customer['is_active']) ? filter_var($customer['is_active'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true : true,
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        if (empty($customers)) {
+            return $this->validationError(['customers' => ['Please enter at least one customer with a name.']]);
+        }
+
+        $validator = Validator::make(['customers' => $customers], [
+            'customers' => 'required|array|min:1',
+            'customers.*.name' => 'required|string|max:255',
+            'customers.*.email' => 'nullable|email',
+            'customers.*.phone' => 'nullable|string|max:20',
+            'customers.*.address' => 'nullable|string|max:500',
+            'customers.*.company' => 'nullable|string|max:255',
+            'customers.*.contact_person' => 'nullable|string|max:255',
+            'customers.*.notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors());
+        }
+
+        $created = 0;
+        $skipped = 0;
+
+        foreach ($customers as $row) {
+            try {
+                Customer::create($row);
+                $created++;
+            } catch (\Exception $e) {
+                $skipped++;
+                continue;
+            }
+        }
+
+        return $this->success([
+            'created' => $created,
+            'skipped' => $skipped,
+        ], "{$created} customer(s) created successfully" . ($skipped ? " ({$skipped} skipped due to errors)" : ''));
     }
 }

@@ -7,6 +7,9 @@ use App\Models\Invoice;
 use App\Models\InvoiceLineItem;
 use App\Models\Customer;
 use App\Models\Item;
+use App\Models\Account;
+use App\Models\Transaction;
+use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -71,9 +74,12 @@ class InvoicesApiController extends ApiController
     public function store(Request $request)
     {
         try {
+            $itemsKey = $request->has('line_items') ? 'line_items' : 'items';
+
             $validated = $request->validate([
                 'customer_id' => 'required|exists:customers,id',
                 'date' => 'required|date',
+                'due_date' => 'nullable|date',
                 'ship_date' => 'nullable|date',
                 'po_number' => 'nullable|string|max:255',
                 'terms' => 'nullable|string|max:255',
@@ -85,21 +91,35 @@ class InvoicesApiController extends ApiController
                 'billing_address' => 'nullable|string',
                 'shipping_address' => 'nullable|string',
                 'template' => 'nullable|string|max:255',
+                'discount_amount' => 'nullable|numeric|min:0',
+                'shipping_amount' => 'nullable|numeric|min:0',
                 'is_online_payment_enabled' => 'boolean',
-                'line_items' => 'required|array|min:1',
-                'line_items.*.item_id' => 'nullable|exists:items,id',
-                'line_items.*.description' => 'required|string|max:255',
-                'line_items.*.quantity' => 'required|numeric|min:0.01',
-                'line_items.*.unit_price' => 'required|numeric|min:0',
-                'line_items.*.tax_rate' => 'nullable|numeric|min:0|max:100',
+                $itemsKey => 'required|array|min:1',
+                $itemsKey . '.*.item_id' => 'nullable|exists:items,id',
+                $itemsKey . '.*.description' => 'required|string|max:255',
+                $itemsKey . '.*.quantity' => 'required|numeric|min:0.01',
+                $itemsKey . '.*.unit_price' => 'required|numeric|min:0',
+                $itemsKey . '.*.tax_rate' => 'nullable|numeric|min:0|max:100',
             ]);
 
             DB::beginTransaction();
             
-            // Create invoice
+            $lineItems = $validated[$itemsKey];
+            $subtotal = collect($lineItems)->reduce(function ($carry, $item) {
+                return $carry + ($item['quantity'] * $item['unit_price']);
+            }, 0);
+
+            $taxRate = $request->input('tax_rate', 0);
+            $taxAmount = $subtotal * ($taxRate / 100);
+            $discountAmount = $validated['discount_amount'] ?? 0;
+            $shippingAmount = $validated['shipping_amount'] ?? 0;
+            $totalAmount = $subtotal + $taxAmount + $shippingAmount - $discountAmount;
+
             $invoice = Invoice::create([
                 'customer_id' => $validated['customer_id'],
+                'invoice_no' => $request->invoice_no ?? $this->generateInvoiceNumber(),
                 'date' => $validated['date'],
+                'due_date' => $validated['due_date'] ?? $validated['date'],
                 'ship_date' => $validated['ship_date'],
                 'po_number' => $validated['po_number'],
                 'terms' => $validated['terms'],
@@ -111,29 +131,97 @@ class InvoicesApiController extends ApiController
                 'billing_address' => $validated['billing_address'],
                 'shipping_address' => $validated['shipping_address'],
                 'template' => $validated['template'] ?? 'default',
+                'discount_amount' => $discountAmount,
+                'shipping_amount' => $shippingAmount,
                 'is_online_payment_enabled' => $validated['is_online_payment_enabled'] ?? false,
+                'subtotal' => $subtotal,
+                'tax_amount' => $taxAmount,
+                'total_amount' => $totalAmount,
+                'payments_applied' => 0,
+                'balance_due' => $totalAmount,
+                'status' => 'unpaid',
             ]);
 
-            // Create line items
-            foreach ($validated['line_items'] as $lineItemData) {
-                InvoiceLineItem::create([
+            $totalCostOfGoodsSold = 0;
+
+            foreach ($lineItems as $lineItemData) {
+                $invoiceLine = InvoiceLineItem::create([
                     'invoice_id' => $invoice->id,
                     'item_id' => $lineItemData['item_id'] ?? null,
                     'description' => $lineItemData['description'],
                     'quantity' => $lineItemData['quantity'],
                     'unit_price' => $lineItemData['unit_price'],
-                    'tax_rate' => $lineItemData['tax_rate'] ?? 0,
+                    'tax_rate' => $lineItemData['tax_rate'] ?? $taxRate,
+                ]);
+
+                if ($invoiceLine->item_id) {
+                    $item = Item::find($invoiceLine->item_id);
+                    if ($item && $item->isInventoryItem()) {
+                        $lineItemCost = $item->cost * $invoiceLine->quantity;
+                        $totalCostOfGoodsSold += $lineItemCost;
+
+                        InventoryService::recordSale(
+                            $item,
+                            $invoiceLine->quantity,
+                            'invoice',
+                            $invoice->id,
+                            $invoice->date,
+                            "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}"
+                        );
+                    }
+                }
+            }
+
+            if (method_exists($invoice, 'calculateTotals')) {
+                $invoice->calculateTotals();
+            }
+
+            $accountsReceivable = Account::where('account_name', 'Accounts Receivable')->first();
+            $salesRevenue = Account::where('account_name', 'Sales Revenue')->first();
+            $cogsAccount = Account::where('account_name', 'Cost of Goods Sold')->first();
+            $inventoryAccount = Account::where('account_name', 'Inventory')->first();
+
+            if (!$accountsReceivable || !$salesRevenue || !$cogsAccount || !$inventoryAccount) {
+                throw new \Exception('Required accounts not found. Please configure the chart of accounts.');
+            }
+
+            Transaction::create([
+                'account_id' => $accountsReceivable->id,
+                'type' => 'debit',
+                'amount' => $invoice->total_amount,
+                'description' => "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}",
+                'transaction_date' => $invoice->date,
+            ]);
+
+            Transaction::create([
+                'account_id' => $salesRevenue->id,
+                'type' => 'credit',
+                'amount' => $invoice->total_amount,
+                'description' => "Invoice #{$invoice->invoice_no} - Sales Revenue from {$invoice->customer->name}",
+                'transaction_date' => $invoice->date,
+            ]);
+
+            if ($totalCostOfGoodsSold > 0) {
+                Transaction::create([
+                    'account_id' => $cogsAccount->id,
+                    'type' => 'debit',
+                    'amount' => $totalCostOfGoodsSold,
+                    'description' => "Invoice #{$invoice->invoice_no} - Cost of Goods Sold",
+                    'transaction_date' => $invoice->date,
+                ]);
+
+                Transaction::create([
+                    'account_id' => $inventoryAccount->id,
+                    'type' => 'credit',
+                    'amount' => $totalCostOfGoodsSold,
+                    'description' => "Invoice #{$invoice->invoice_no} - Inventory reduction",
+                    'transaction_date' => $invoice->date,
                 ]);
             }
 
-            // Calculate totals
-            $invoice->calculateTotals();
-
             DB::commit();
 
-            $invoice->load(['customer', 'lineItems.item']);
-
-            return $this->success($invoice, 'Invoice created successfully', 201);
+            return $this->success($invoice->fresh(['customer', 'lineItems.item']), 'Invoice created successfully', 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollback();
             return $this->validationError($e->errors(), 'Validation failed');
@@ -298,5 +386,21 @@ class InvoicesApiController extends ApiController
         } catch (\Exception $e) {
             return $this->serverError('Failed to email invoice: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Generate next invoice number.
+     */
+    private function generateInvoiceNumber(): string
+    {
+        $lastInvoice = Invoice::orderBy('id', 'desc')->first();
+
+        if ($lastInvoice && $lastInvoice->invoice_no && preg_match('/-(\d+)$/', $lastInvoice->invoice_no, $matches)) {
+            $nextNumber = (int) $matches[1] + 1;
+        } else {
+            $nextNumber = 1;
+        }
+
+        return 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
     }
 }

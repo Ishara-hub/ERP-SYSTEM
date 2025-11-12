@@ -9,6 +9,7 @@ use App\Models\Supplier;
 use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\InventoryService;
 
 class PurchaseOrdersApiController extends ApiController
 {
@@ -20,47 +21,53 @@ class PurchaseOrdersApiController extends ApiController
         try {
             $query = PurchaseOrder::with(['supplier', 'items']);
 
-            // Search functionality
-            if ($request->has('search') && $request->search) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('po_number', 'like', '%' . $request->search . '%')
-                      ->orWhere('reference', 'like', '%' . $request->search . '%')
-                      ->orWhereHas('supplier', function ($supplierQuery) use ($request) {
-                          $supplierQuery->where('name', 'like', '%' . $request->search . '%')
-                                       ->orWhere('company_name', 'like', '%' . $request->search . '%');
-                      });
+            if ($request->filled('search')) {
+                $search = $request->input('search');
+                $query->where(function ($q) use ($search) {
+                    $q->where('po_number', 'like', "%{$search}%")
+                        ->orWhere('reference', 'like', "%{$search}%")
+                        ->orWhereHas('supplier', function ($supplierQuery) use ($search) {
+                            $supplierQuery->where('name', 'like', "%{$search}%")
+                                ->orWhere('company_name', 'like', "%{$search}%");
+                        });
                 });
             }
 
-            // Status filter
-            if ($request->has('status') && $request->status && $request->status !== 'all') {
+            if ($request->filled('status') && $request->status !== 'all') {
                 $query->where('status', $request->status);
             }
 
-            // Date range filter
-            if ($request->has('date_from') && $request->date_from) {
+            if ($request->filled('supplier_id')) {
+                $query->where('supplier_id', $request->supplier_id);
+            }
+
+            if ($request->filled('date_from')) {
                 $query->whereDate('order_date', '>=', $request->date_from);
             }
-            if ($request->has('date_to') && $request->date_to) {
+            if ($request->filled('date_to')) {
                 $query->whereDate('order_date', '<=', $request->date_to);
             }
 
-            // Sort functionality
             $sortBy = $request->get('sort_by', 'created_at');
             $sortDirection = $request->get('sort_direction', 'desc');
-            
-            if (in_array($sortBy, ['po_number', 'order_date', 'total_amount', 'status', 'created_at'])) {
-                $query->orderBy($sortBy, $sortDirection);
+            $allowedSorts = ['po_number', 'order_date', 'total_amount', 'status', 'created_at'];
+            if (!in_array($sortBy, $allowedSorts, true)) {
+                $sortBy = 'created_at';
             }
+            $query->orderBy($sortBy, $sortDirection);
 
-            $purchaseOrders = $query->paginate(15);
+            $purchaseOrders = $query->paginate((int) $request->get('per_page', 15))->withQueryString();
 
-            $data = [
-                'purchaseOrders' => $purchaseOrders,
-                'filters' => $request->only(['search', 'status', 'date_from', 'date_to', 'sort_by', 'sort_direction'])
-            ];
-
-            return $this->success($data, 'Purchase orders retrieved successfully');
+            return $this->success([
+                'purchase_orders' => $purchaseOrders,
+                'filters' => $request->only(['search', 'status', 'supplier_id', 'date_from', 'date_to', 'sort_by', 'sort_direction']),
+                'stats' => [
+                    'total' => PurchaseOrder::count(),
+                    'draft' => PurchaseOrder::where('status', 'draft')->count(),
+                    'open' => PurchaseOrder::whereIn('status', ['sent', 'confirmed', 'partial'])->count(),
+                    'received' => PurchaseOrder::where('status', 'received')->count(),
+                ],
+            ], 'Purchase orders retrieved successfully');
         } catch (\Exception $e) {
             return $this->serverError('Failed to retrieve purchase orders: ' . $e->getMessage());
         }
@@ -96,7 +103,6 @@ class PurchaseOrdersApiController extends ApiController
 
             DB::beginTransaction();
             
-            // Create purchase order
             $purchaseOrder = PurchaseOrder::create([
                 'supplier_id' => $validated['supplier_id'],
                 'order_date' => $validated['order_date'],
@@ -112,7 +118,6 @@ class PurchaseOrdersApiController extends ApiController
                 'status' => 'draft',
             ]);
 
-            // Create line items
             foreach ($validated['line_items'] as $lineItemData) {
                 PurchaseOrderItem::create([
                     'purchase_order_id' => $purchaseOrder->id,
@@ -126,15 +131,12 @@ class PurchaseOrdersApiController extends ApiController
                 ]);
             }
 
-            // Calculate totals
             $purchaseOrder->calculateTotals();
             $purchaseOrder->save();
 
             DB::commit();
 
-            $purchaseOrder->load(['supplier', 'items.item']);
-
-            return $this->success($purchaseOrder, 'Purchase order created successfully', 201);
+            return $this->success($purchaseOrder->fresh(['supplier', 'items.item']), 'Purchase order created successfully', 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollback();
             return $this->validationError($e->errors(), 'Validation failed');
@@ -276,6 +278,110 @@ class PurchaseOrdersApiController extends ApiController
             return $this->validationError($e->errors(), 'Validation failed');
         } catch (\Exception $e) {
             return $this->serverError('Failed to update purchase order status: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Retrieve options for purchase order forms.
+     */
+    public function options()
+    {
+        try {
+            return $this->success([
+                'suppliers' => Supplier::where('is_active', true)->orderBy('name')->get(['id', 'name']),
+                'items' => Item::where('is_active', true)->orderBy('item_name')->get(['id', 'item_name', 'sales_price', 'item_type']),
+                'statuses' => [
+                    'draft',
+                    'sent',
+                    'confirmed',
+                    'partial',
+                    'received',
+                    'cancelled',
+                ],
+            ], 'Purchase order options retrieved successfully');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to retrieve purchase order options: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Receive inventory for a purchase order.
+     */
+    public function receiveInventory(Request $request, PurchaseOrder $purchaseOrder)
+    {
+        if (!in_array($purchaseOrder->status, ['sent', 'confirmed', 'partial'], true)) {
+            return $this->error('Purchase order must be sent, confirmed, or partially received to receive inventory.', null, 403);
+        }
+
+        $validated = $request->validate([
+            'received_items' => 'required|array',
+            'received_items.*.item_id' => 'required|exists:purchase_order_items,id',
+            'received_items.*.received_quantity' => 'required|numeric|min:0',
+            'receive_date' => 'required|date',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $allFullyReceived = true;
+            $anyReceived = false;
+
+            foreach ($validated['received_items'] as $receivedItem) {
+                $poItem = PurchaseOrderItem::find($receivedItem['item_id']);
+                if (!$poItem || $poItem->purchase_order_id !== $purchaseOrder->id) {
+                    continue;
+                }
+
+                $receivedQuantity = $receivedItem['received_quantity'];
+                if ($receivedQuantity <= 0) {
+                    continue;
+                }
+
+                $newReceivedQuantity = $poItem->received_quantity + $receivedQuantity;
+                if ($newReceivedQuantity > $poItem->quantity) {
+                    return $this->validationError([
+                        "received_items.{$poItem->id}.received_quantity" => ['Received quantity cannot exceed ordered quantity.'],
+                    ]);
+                }
+
+                $poItem->update(['received_quantity' => $newReceivedQuantity]);
+
+                $item = $poItem->item;
+                if ($item && $item->isInventoryItem()) {
+                    InventoryService::recordPurchase(
+                        $item,
+                        $receivedQuantity,
+                        $poItem->unit_price,
+                        'purchase_order',
+                        $purchaseOrder->id,
+                        $validated['receive_date'],
+                        "PO {$purchaseOrder->po_number} receipt"
+                    );
+                }
+
+                if ($newReceivedQuantity < $poItem->quantity) {
+                    $allFullyReceived = false;
+                }
+                if ($newReceivedQuantity > 0) {
+                    $anyReceived = true;
+                }
+            }
+
+            if ($allFullyReceived) {
+                $purchaseOrder->update([
+                    'status' => 'received',
+                    'actual_delivery_date' => $validated['receive_date'],
+                ]);
+            } elseif ($anyReceived) {
+                $purchaseOrder->update(['status' => 'partial']);
+            }
+
+            DB::commit();
+
+            return $this->success($purchaseOrder->fresh(['items.item']), 'Inventory received successfully');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->serverError('Failed to receive inventory: ' . $e->getMessage());
         }
     }
 

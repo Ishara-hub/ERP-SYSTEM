@@ -83,39 +83,51 @@ class InvoiceController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
-            'customer_id' => 'required|exists:customers,id',
-            'date' => 'required|date',
-            'due_date' => 'nullable|date',
-            'po_number' => 'nullable|string|max:255',
-            'terms' => 'nullable|string|max:255',
-            'rep' => 'nullable|string|max:255',
-            'ship_date' => 'nullable|date',
-            'via' => 'nullable|string|max:255',
-            'fob' => 'nullable|string|max:255',
-            'template' => 'nullable|string|max:255',
-            'billing_address' => 'nullable|string',
-            'shipping_address' => 'nullable|string',
-            'customer_message' => 'nullable|string',
-            'memo' => 'nullable|string',
-            'discount_amount' => 'nullable|numeric|min:0',
-            'shipping_amount' => 'nullable|numeric|min:0',
-            'is_online_payment_enabled' => 'boolean',
-            'line_items' => 'required|array|min:1',
-            'line_items.*.item_id' => 'nullable|exists:items,id',
-            'line_items.*.description' => 'required|string|max:255',
-            'line_items.*.quantity' => 'required|numeric|min:0.01',
-            'line_items.*.unit_price' => 'required|numeric|min:0',
-            'line_items.*.tax_rate' => 'nullable|numeric|min:0|max:100',
-        ]);
+        try {
+            $validated = $request->validate([
+                'customer_id' => 'required|exists:customers,id',
+                'date' => 'required|date',
+                'due_date' => 'nullable|date',
+                'po_number' => 'nullable|string|max:255',
+                'terms' => 'nullable|string|max:255',
+                'rep' => 'nullable|string|max:255',
+                'ship_date' => 'nullable|date',
+                'via' => 'nullable|string|max:255',
+                'fob' => 'nullable|string|max:255',
+                'template' => 'nullable|string|max:255',
+                'billing_address' => 'nullable|string',
+                'shipping_address' => 'nullable|string',
+                'customer_message' => 'nullable|string',
+                'memo' => 'nullable|string',
+                'discount_amount' => 'nullable|numeric|min:0',
+                'shipping_amount' => 'nullable|numeric|min:0',
+                'is_online_payment_enabled' => 'boolean',
+                'items' => 'required|array|min:1',
+                'items.*.item_id' => 'nullable|exists:items,id',
+                'items.*.description' => 'required|string|max:255',
+                'items.*.quantity' => 'required|numeric|min:0.01',
+                'items.*.unit_price' => 'required|numeric|min:0',
+                'items.*.tax_rate' => 'nullable|numeric|min:0|max:100',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $e->errors()
+                ], 422);
+            }
+            throw $e;
+        }
 
         DB::beginTransaction();
         try {
             // Create invoice
             $invoice = Invoice::create([
                 'customer_id' => $request->customer_id,
+                'invoice_no' => $request->invoice_no ?? $this->generateInvoiceNumber(),
                 'date' => $request->date,
-                'due_date' => $request->due_date,
+                'due_date' => $request->due_date ?? $request->date,
                 'po_number' => $request->po_number,
                 'terms' => $request->terms,
                 'rep' => $request->rep,
@@ -135,7 +147,9 @@ class InvoiceController extends Controller
             $totalCostOfGoodsSold = 0;
 
             // Create line items and handle inventory
-            foreach ($request->line_items as $lineItemData) {
+            // Handle both 'items' and 'line_items' for backward compatibility
+            $lineItems = $request->items ?? $request->line_items ?? [];
+            foreach ($lineItems as $lineItemData) {
                 $lineItem = InvoiceLineItem::create([
                     'invoice_id' => $invoice->id,
                     'item_id' => $lineItemData['item_id'] ?? null,
@@ -225,10 +239,29 @@ class InvoiceController extends Controller
 
             DB::commit();
 
+            // Return JSON response for AJAX requests
+            if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Invoice created successfully with proper accounting entries.',
+                    'invoice' => $invoice->load(['customer', 'lineItems']),
+                    'redirect' => route('invoices.web.show', $invoice)
+                ]);
+            }
+
             return redirect()->route('invoices.web.show', $invoice)
                 ->with('success', 'Invoice created successfully with proper accounting entries.');
         } catch (\Exception $e) {
             DB::rollback();
+            
+            // Return JSON response for AJAX requests
+            if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create invoice: ' . $e->getMessage()
+                ], 500);
+            }
+            
             return back()->withErrors(['error' => 'Failed to create invoice: ' . $e->getMessage()]);
         }
     }
@@ -387,5 +420,26 @@ class InvoiceController extends Controller
         ]);
 
         return back()->with('success', 'Invoice marked as paid.');
+    }
+
+    /**
+     * Generate unique invoice number
+     */
+    private function generateInvoiceNumber()
+    {
+        $lastInvoice = Invoice::orderBy('id', 'desc')->first();
+        
+        if ($lastInvoice && $lastInvoice->invoice_no) {
+            // Extract number from last invoice (e.g., "INV-001" -> 1)
+            if (preg_match('/-(\d+)$/', $lastInvoice->invoice_no, $matches)) {
+                $nextNumber = (int)$matches[1] + 1;
+            } else {
+                $nextNumber = 1;
+            }
+        } else {
+            $nextNumber = 1;
+        }
+        
+        return 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
     }
 }

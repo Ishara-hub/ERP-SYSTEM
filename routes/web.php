@@ -118,6 +118,15 @@ Route::middleware('auth')->group(function () {
 
 // Item Management Routes (Protected by authentication)
 Route::middleware('auth')->group(function () {
+    // Specific item routes must come before resource route
+    Route::get('items/bulk/create', [ItemController::class, 'bulkCreate'])->name('items.web.bulk-create');
+    Route::post('items/bulk/store', [ItemController::class, 'bulkStore'])->name('items.web.bulk-store');
+    Route::get('items/csv-import', [ItemController::class, 'csvImport'])->name('items.web.csv-import');
+    Route::post('items/csv-import', [ItemController::class, 'csvImportStore'])->name('items.web.csv-import-store');
+    Route::post('items/{item}/toggle-status', [ItemController::class, 'toggleStatus'])->name('items.web.toggle-status');
+    Route::get('items/child-items', [ItemController::class, 'getChildItems'])->name('items.web.child-items');
+    
+    // Resource route (must come after specific routes)
     Route::resource('items', ItemController::class)->names([
         'index' => 'items.web.index',
         'create' => 'items.web.create',
@@ -127,10 +136,6 @@ Route::middleware('auth')->group(function () {
         'update' => 'items.web.update',
         'destroy' => 'items.web.destroy',
     ]);
-    Route::get('items/bulk/create', [ItemController::class, 'bulkCreate'])->name('items.web.bulk-create');
-    Route::post('items/bulk/store', [ItemController::class, 'bulkStore'])->name('items.web.bulk-store');
-    Route::post('items/{item}/toggle-status', [ItemController::class, 'toggleStatus'])->name('items.web.toggle-status');
-    Route::get('items/child-items', [ItemController::class, 'getChildItems'])->name('items.web.child-items');
 });
 
 // Supplier Management Routes (Protected by authentication)

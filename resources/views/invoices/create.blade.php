@@ -601,24 +601,45 @@ document.addEventListener('DOMContentLoaded', function() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
             },
             body: JSON.stringify(invoiceData)
         })
-        .then(response => response.json())
+        .then(response => {
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                return response.json();
+            } else {
+                // If not JSON, it's likely an HTML error page
+                return response.text().then(text => {
+                    throw new Error('Server returned HTML instead of JSON. This usually means there was a validation error or server error.');
+                });
+            }
+        })
         .then(data => {
             if (data.success) {
                 alert(`Invoice ${data.invoice.invoice_no} created successfully!`);
-                // Reset form
-                location.reload();
+                // Redirect to invoice show page
+                if (data.redirect) {
+                    window.location.href = data.redirect;
+                } else {
+                    location.reload();
+                }
             } else {
-                alert('Error creating invoice: ' + (data.message || 'Unknown error'));
+                let errorMsg = data.message || 'Unknown error';
+                if (data.errors) {
+                    errorMsg += '\n\nErrors:\n' + Object.values(data.errors).flat().join('\n');
+                }
+                alert('Error creating invoice: ' + errorMsg);
             }
             hideLoading();
         })
         .catch(error => {
             console.error('Error creating invoice:', error);
-            alert('Error creating invoice. Please try again.');
+            alert('Error creating invoice: ' + error.message);
             hideLoading();
         });
     });

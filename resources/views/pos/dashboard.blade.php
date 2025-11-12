@@ -362,15 +362,15 @@ document.addEventListener('DOMContentLoaded', function() {
     let cart = [];
     let itemIndex = 0;
 
-    // Load accounts
-    const subAccounts = @json($subAccounts);
+    // Load Accounts Receivable accounts
+    const accountsReceivable = @json($accountsReceivable);
     const accountSelect = document.getElementById('account-select');
     
     // Populate account dropdown
-    subAccounts.forEach(account => {
+    accountsReceivable.forEach(account => {
         const option = document.createElement('option');
         option.value = account.id;
-        option.textContent = `${account.account_name} (${account.parent ? account.parent.account_name : 'No Parent'})`;
+        option.textContent = `${account.account_name}${account.account_code ? ' (' + account.account_code + ')' : ''}`;
         accountSelect.appendChild(option);
     });
     
@@ -810,41 +810,75 @@ document.addEventListener('DOMContentLoaded', function() {
 
         showLoading();
 
+        // Get invoice number - check if it's an input or text element
+        const invoiceNumberEl = document.getElementById('invoice-number');
+        const invoiceNo = invoiceNumberEl ? (invoiceNumberEl.value || invoiceNumberEl.textContent || '').trim() : '';
+        
         const invoiceData = {
             customer_id: selectedCustomer.id,
-            invoice_no: document.getElementById('invoice-number').textContent,
-            date: document.getElementById('invoice-date').value,
+            invoice_no: invoiceNo || null, // Let server generate if empty
+            date: document.getElementById('invoice-date') ? document.getElementById('invoice-date').value : new Date().toISOString().split('T')[0],
             due_date: document.getElementById('due-date') ? document.getElementById('due-date').value : null,
-            po_number: document.getElementById('po-number').value,
-            terms: document.getElementById('payment-terms').value,
-            rep: document.getElementById('representative').value,
-            template: document.getElementById('template').value,
-            ship_date: document.getElementById('ship-date').value,
-            via: document.getElementById('shipping-via').value,
-            fob: document.getElementById('fob').value,
-            billing_address: document.getElementById('billing-address').value,
-            shipping_address: document.getElementById('shipping-address').value,
-            customer_message: document.getElementById('customer-message').value,
+            po_number: document.getElementById('po-number') ? document.getElementById('po-number').value : '',
+            terms: document.getElementById('payment-terms') ? document.getElementById('payment-terms').value : '',
+            rep: document.getElementById('representative') ? document.getElementById('representative').value : '',
+            template: document.getElementById('template') ? document.getElementById('template').value : 'default',
+            ship_date: document.getElementById('ship-date') ? document.getElementById('ship-date').value : null,
+            via: document.getElementById('shipping-via') ? document.getElementById('shipping-via').value : '',
+            fob: document.getElementById('fob') ? document.getElementById('fob').value : '',
+            billing_address: document.getElementById('billing-address') ? document.getElementById('billing-address').value : '',
+            shipping_address: document.getElementById('shipping-address') ? document.getElementById('shipping-address').value : '',
+            customer_message: document.getElementById('customer-message') ? document.getElementById('customer-message').value : '',
             memo: document.getElementById('memo') ? document.getElementById('memo').value : '',
-            is_online_payment_enabled: document.getElementById('online-payment').value === '1',
+            is_online_payment_enabled: document.getElementById('online-payment') ? document.getElementById('online-payment').value === '1' : false,
             tax_rate: 0,
-            line_items: cart.map(item => ({
+            items: cart.map(item => ({
                 item_id: item.id,
-                description: item.description,
-                quantity: item.quantity,
-                unit_price: item.unit_price
+                description: item.description || item.name || '',
+                quantity: parseFloat(item.quantity) || 0,
+                unit_price: parseFloat(item.unit_price) || 0
             }))
         };
+        
+        // Validate items before sending
+        if (invoiceData.items.length === 0) {
+            alert('Please add at least one item to the invoice');
+            hideLoading();
+            return;
+        }
+        
+        // Validate that all items have required fields
+        const invalidItems = invoiceData.items.filter(item => !item.item_id || !item.quantity || !item.unit_price);
+        if (invalidItems.length > 0) {
+            alert('Some items are missing required information. Please check all items.');
+            hideLoading();
+            return;
+        }
+        
+        console.log('Sending invoice data:', invoiceData);
 
         fetch('/pos/create-invoice', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
             },
             body: JSON.stringify(invoiceData)
         })
-        .then(response => response.json())
+        .then(response => {
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                return response.json();
+            } else {
+                // If not JSON, it's likely an HTML error page
+                return response.text().then(text => {
+                    throw new Error('Server returned HTML instead of JSON. This usually means there was a validation error or server error.');
+                });
+            }
+        })
         .then(data => {
             if (data.success) {
                 alert(`Invoice ${data.invoice.invoice_no} created successfully!`);
@@ -854,14 +888,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 calculateTotals();
                 updateButtons();
                 loadCustomerInvoices();
+                
+                // Optionally redirect to invoice page
+                if (data.redirect && confirm('Invoice created successfully! Would you like to view the invoice?')) {
+                    window.location.href = data.redirect;
+                }
             } else {
-                alert('Error creating invoice: ' + (data.message || 'Unknown error'));
+                let errorMsg = data.message || 'Unknown error';
+                if (data.errors) {
+                    const errorList = Object.entries(data.errors)
+                        .map(([field, messages]) => `${field}: ${Array.isArray(messages) ? messages.join(', ') : messages}`)
+                        .join('\n');
+                    errorMsg += '\n\nValidation Errors:\n' + errorList;
+                }
+                console.error('Invoice creation error:', data);
+                alert('Error creating invoice:\n' + errorMsg);
             }
             hideLoading();
         })
         .catch(error => {
             console.error('Error creating invoice:', error);
-            alert('Error creating invoice. Please try again.');
+            alert('Error creating invoice: ' + error.message);
             hideLoading();
         });
     });
