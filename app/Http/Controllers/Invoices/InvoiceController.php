@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Item;
 use App\Models\Account;
 use App\Models\Transaction;
+use App\Models\Journal;
 use App\Models\StockMovement;
 use App\Services\InventoryService;
 use Illuminate\Http\Request;
@@ -142,6 +143,10 @@ class InvoiceController extends Controller
                 'discount_amount' => $request->discount_amount ?? 0,
                 'shipping_amount' => $request->shipping_amount ?? 0,
                 'is_online_payment_enabled' => $request->is_online_payment_enabled ?? false,
+                'subtotal' => 0,
+                'tax_amount' => 0,
+                'total_amount' => 0,
+                'balance_due' => 0,
             ]);
 
             $totalCostOfGoodsSold = 0;
@@ -199,7 +204,7 @@ class InvoiceController extends Controller
             
             // Entry 1: Record the Sale and Receivable
             // Debit Accounts Receivable
-            Transaction::create([
+            $transaction1 = Transaction::create([
                 'account_id' => $accountsReceivable->id,
                 'type' => 'debit',
                 'amount' => $invoice->total_amount,
@@ -207,19 +212,23 @@ class InvoiceController extends Controller
                 'transaction_date' => $invoice->date,
             ]);
             
-            // Credit Sales Revenue
-            Transaction::create([
-                'account_id' => $salesRevenue->id,
-                'type' => 'credit',
+            // Create Journal Entry: Debit AR, Credit Sales Revenue
+            Journal::create([
+                'transaction_id' => $transaction1->id,
+                'debit_account_id' => $accountsReceivable->id,
+                'credit_account_id' => $salesRevenue->id,
                 'amount' => $invoice->total_amount,
-                'description' => "Invoice #{$invoice->invoice_no} - Sales Revenue from {$invoice->customer->name}",
-                'transaction_date' => $invoice->date,
+                'date' => $invoice->date,
             ]);
+
+            // Update account balances
+            $accountsReceivable->increment('current_balance', $invoice->total_amount);
+            $salesRevenue->increment('current_balance', $invoice->total_amount);
 
             // Entry 2: Record Cost of Goods Sold and Inventory Reduction
             if ($totalCostOfGoodsSold > 0) {
                 // Debit Cost of Goods Sold
-                Transaction::create([
+                $transaction2 = Transaction::create([
                     'account_id' => $cogsAccount->id,
                     'type' => 'debit',
                     'amount' => $totalCostOfGoodsSold,
@@ -227,14 +236,18 @@ class InvoiceController extends Controller
                     'transaction_date' => $invoice->date,
                 ]);
                 
-                // Credit Inventory
-                Transaction::create([
-                    'account_id' => $inventoryAccount->id,
-                    'type' => 'credit',
+                // Create Journal Entry: Debit COGS, Credit Inventory
+                Journal::create([
+                    'transaction_id' => $transaction2->id,
+                    'debit_account_id' => $cogsAccount->id,
+                    'credit_account_id' => $inventoryAccount->id,
                     'amount' => $totalCostOfGoodsSold,
-                    'description' => "Invoice #{$invoice->invoice_no} - Inventory reduction",
-                    'transaction_date' => $invoice->date,
+                    'date' => $invoice->date,
                 ]);
+
+                // Update account balances
+                $cogsAccount->increment('current_balance', $totalCostOfGoodsSold);
+                $inventoryAccount->decrement('current_balance', $totalCostOfGoodsSold);
             }
 
             DB::commit();
@@ -427,17 +440,22 @@ class InvoiceController extends Controller
      */
     private function generateInvoiceNumber()
     {
-        $lastInvoice = Invoice::orderBy('id', 'desc')->first();
-        
-        if ($lastInvoice && $lastInvoice->invoice_no) {
-            // Extract number from last invoice (e.g., "INV-001" -> 1)
-            if (preg_match('/-(\d+)$/', $lastInvoice->invoice_no, $matches)) {
-                $nextNumber = (int)$matches[1] + 1;
-            } else {
-                $nextNumber = 1;
-            }
+        // Find the maximum numeric part among all invoices starting with 'INV-'
+        $maxInv = Invoice::where('invoice_no', 'like', 'INV-%')
+            ->selectRaw("MAX(CAST(SUBSTRING(invoice_no, 5) AS UNSIGNED)) as max_num")
+            ->first();
+            
+        $nextNumber = 1;
+        if ($maxInv && $maxInv->max_num) {
+            $nextNumber = $maxInv->max_num + 1;
         } else {
-            $nextNumber = 1;
+            // Fallback for purely numeric invoice numbers if no INV- prefix exists
+            $maxNumeric = Invoice::whereRaw('invoice_no REGEXP "^[0-9]+$"')
+                ->selectRaw("MAX(CAST(invoice_no AS UNSIGNED)) as max_num")
+                ->first();
+            if ($maxNumeric && $maxNumeric->max_num) {
+                $nextNumber = $maxNumeric->max_num + 1;
+            }
         }
         
         return 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);

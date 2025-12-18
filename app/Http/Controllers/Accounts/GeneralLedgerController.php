@@ -88,6 +88,16 @@ class GeneralLedgerController extends Controller
         $generalJournals = $generalJournalsQuery->get();
 
         foreach ($generalJournals as $generalJournal) {
+            // Check if this manual entry has already been mirrored to the 'journals' table
+            // We check if any Transaction exists with this reference in brackets
+            $isMirrored = Journal::whereHas('transaction', function($q) use ($generalJournal) {
+                $q->where('description', 'like', '[' . $generalJournal->reference . ']%');
+            })->exists();
+
+            if ($isMirrored) {
+                continue;
+            }
+
             foreach ($generalJournal->entries as $entry) {
                 $account = $entry->account;
                 
@@ -317,6 +327,15 @@ class GeneralLedgerController extends Controller
         $generalJournals = $generalJournalsQuery->get();
 
         foreach ($generalJournals as $generalJournal) {
+            // Check if this manual entry has already been mirrored to the 'journals' table
+            $isMirrored = Journal::whereHas('transaction', function($q) use ($generalJournal) {
+                $q->where('description', 'like', '[' . $generalJournal->reference . ']%');
+            })->exists();
+
+            if ($isMirrored) {
+                continue;
+            }
+
             foreach ($generalJournal->entries as $entry) {
                 $account = $entry->account;
                 

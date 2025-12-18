@@ -109,7 +109,14 @@
                                             {{ $account['account_code'] }}
                                         </td>
                                         <td class="px-3 py-2 font-medium text-gray-900">
-                                            {{ $account['account_name'] }}
+                                            <a href="{{ route('accounts.reports.sub-account-details', [
+                                                'account' => $account['account_id'],
+                                                'date_from' => $dateFrom,
+                                                'date_to' => $dateTo
+                                            ]) }}" 
+                                               class="text-blue-600 hover:text-blue-800 hover:underline">
+                                                {{ $account['account_name'] }}
+                                            </a>
                                         </td>
                                         <td class="px-3 py-2 text-right text-xs font-medium text-green-700">
                                             ${{ number_format($account['debit'], 2) }}
@@ -128,7 +135,14 @@
                                             {{ $account['account_code'] }}
                                         </td>
                                         <td class="px-3 py-2 font-bold text-gray-900">
-                                            {{ $account['account_name'] }}
+                                            <a href="{{ route('accounts.reports.sub-account-details', [
+                                                'account' => $account['account_id'],
+                                                'date_from' => $dateFrom,
+                                                'date_to' => $dateTo
+                                            ]) }}" 
+                                               class="text-blue-600 hover:text-blue-800 hover:underline">
+                                                {{ $account['account_name'] }}
+                                            </a>
                                         </td>
                                         <td colspan="3" class="px-3 py-2"></td>
                                     </tr>

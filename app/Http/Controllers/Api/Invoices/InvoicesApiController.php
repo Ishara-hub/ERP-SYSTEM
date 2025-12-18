@@ -393,14 +393,24 @@ class InvoicesApiController extends ApiController
      */
     private function generateInvoiceNumber(): string
     {
-        $lastInvoice = Invoice::orderBy('id', 'desc')->first();
-
-        if ($lastInvoice && $lastInvoice->invoice_no && preg_match('/-(\d+)$/', $lastInvoice->invoice_no, $matches)) {
-            $nextNumber = (int) $matches[1] + 1;
+        // Find the maximum numeric part among all invoices starting with 'INV-'
+        $maxInv = Invoice::where('invoice_no', 'like', 'INV-%')
+            ->selectRaw("MAX(CAST(SUBSTRING(invoice_no, 5) AS UNSIGNED)) as max_num")
+            ->first();
+            
+        $nextNumber = 1;
+        if ($maxInv && $maxInv->max_num) {
+            $nextNumber = $maxInv->max_num + 1;
         } else {
-            $nextNumber = 1;
+            // Fallback for purely numeric invoice numbers if no INV- prefix exists
+            $maxNumeric = Invoice::whereRaw('invoice_no REGEXP "^[0-9]+$"')
+                ->selectRaw("MAX(CAST(invoice_no AS UNSIGNED)) as max_num")
+                ->first();
+            if ($maxNumeric && $maxNumeric->max_num) {
+                $nextNumber = $maxNumeric->max_num + 1;
+            }
         }
-
+        
         return 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
     }
 }

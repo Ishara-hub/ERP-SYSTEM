@@ -49,6 +49,17 @@ class Invoice extends Model
         'is_online_payment_enabled' => 'boolean',
     ];
 
+    protected $attributes = [
+        'total_amount' => 0,
+        'subtotal' => 0,
+        'tax_amount' => 0,
+        'discount_amount' => 0,
+        'shipping_amount' => 0,
+        'payments_applied' => 0,
+        'balance_due' => 0,
+        'status' => 'unpaid',
+    ];
+
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
@@ -82,9 +93,25 @@ class Invoice extends Model
 
     public static function generateInvoiceNumber()
     {
-        $lastInvoice = self::orderBy('id', 'desc')->first();
-        $nextNumber = $lastInvoice ? $lastInvoice->id + 1 : 1;
-        return 'INV-' . str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
+        // Find the maximum numeric part among all invoices starting with 'INV-'
+        $maxInv = self::where('invoice_no', 'like', 'INV-%')
+            ->selectRaw("MAX(CAST(SUBSTRING(invoice_no, 5) AS UNSIGNED)) as max_num")
+            ->first();
+            
+        $nextNumber = 1;
+        if ($maxInv && $maxInv->max_num) {
+            $nextNumber = $maxInv->max_num + 1;
+        } else {
+            // Fallback for purely numeric invoice numbers if no INV- prefix exists
+            $maxNumeric = self::whereRaw('invoice_no REGEXP "^[0-9]+$"')
+                ->selectRaw("MAX(CAST(invoice_no AS UNSIGNED)) as max_num")
+                ->first();
+            if ($maxNumeric && $maxNumeric->max_num) {
+                $nextNumber = $maxNumeric->max_num + 1;
+            }
+        }
+        
+        return 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
     }
 
     public function calculateTotals()

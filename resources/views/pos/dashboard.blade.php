@@ -118,8 +118,8 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-normal text-gray-700">INVOICE #</label>
-                                    <input type="text" id="invoice-number" value="1" readonly
-                                        class="w-full px-1.5 py-1 border border-gray-300 rounded text-sm bg-gray-50">
+                                    <input type="text" id="invoice-number" value="{{ $nextInvoiceNo }}"
+                                        class="w-full px-1.5 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
                                 </div>
                             </div>
 

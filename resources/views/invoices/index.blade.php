@@ -112,11 +112,11 @@
                                         <div class="text-sm font-medium text-gray-900">{{ $invoice->invoice_no }}</div>
                                     </td>
                                     <td class="px-3 py-2">
-                                        <div class="text-sm text-gray-900">{{ $invoice->customer->name }}</div>
-                                        <div class="text-xs text-gray-500">{{ $invoice->customer->email }}</div>
+                                        <div class="text-sm text-gray-900">{{ $invoice->customer->name ?? 'N/A' }}</div>
+                                        <div class="text-xs text-gray-500">{{ $invoice->customer->email ?? '' }}</div>
                                     </td>
                                     <td class="px-2 py-2 text-center text-sm text-gray-900">
-                                        {{ $invoice->date->format('M d, Y') }}
+                                        {{ $invoice->date ? $invoice->date->format('M d, Y') : '-' }}
                                     </td>
                                     <td class="px-2 py-2 text-center text-sm text-gray-900">
                                         {{ $invoice->due_date ? $invoice->due_date->format('M d, Y') : '-' }}

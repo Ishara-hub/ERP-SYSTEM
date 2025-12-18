@@ -7,6 +7,10 @@ use App\Models\Customer;
 use App\Models\Item;
 use App\Models\Invoice;
 use App\Models\InvoiceLineItem;
+use App\Models\Account;
+use App\Models\Transaction;
+use App\Models\Journal;
+use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +28,33 @@ class POSController extends Controller
             ->orderBy('account_name')
             ->get();
         
-        return view('pos.dashboard', compact('customers', 'items', 'accountsReceivable'));
+        // Generate next invoice number
+        $nextInvoiceNo = $this->generateNextInvoiceNumber();
+        
+        return view('pos.dashboard', compact('customers', 'items', 'accountsReceivable', 'nextInvoiceNo'));
+    }
+    
+    private function generateNextInvoiceNumber(): string
+    {
+        // Find the maximum numeric part among all invoices starting with 'INV-'
+        $maxInv = Invoice::where('invoice_no', 'like', 'INV-%')
+            ->selectRaw("MAX(CAST(SUBSTRING(invoice_no, 5) AS UNSIGNED)) as max_num")
+            ->first();
+            
+        $nextNumber = 1;
+        if ($maxInv && $maxInv->max_num) {
+            $nextNumber = $maxInv->max_num + 1;
+        } else {
+            // Fallback for purely numeric invoice numbers if no INV- prefix exists
+            $maxNumeric = Invoice::whereRaw('invoice_no REGEXP "^[0-9]+$"')
+                ->selectRaw("MAX(CAST(invoice_no AS UNSIGNED)) as max_num")
+                ->first();
+            if ($maxNumeric && $maxNumeric->max_num) {
+                $nextNumber = $maxNumeric->max_num + 1;
+            }
+        }
+        
+        return 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
     }
 
     public function getCustomerPricing(Request $request): JsonResponse
@@ -168,18 +198,8 @@ class POSController extends Controller
 
             // Generate invoice number if not provided
             $invoiceNo = $request->invoice_no;
-            if (!$invoiceNo) {
-                $lastInvoice = Invoice::orderBy('id', 'desc')->first();
-                if ($lastInvoice && $lastInvoice->invoice_no) {
-                    if (preg_match('/-(\d+)$/', $lastInvoice->invoice_no, $matches)) {
-                        $nextNumber = (int)$matches[1] + 1;
-                    } else {
-                        $nextNumber = 1;
-                    }
-                } else {
-                    $nextNumber = 1;
-                }
-                $invoiceNo = 'INV-' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
+            if (empty($invoiceNo)) {
+                $invoiceNo = $this->generateNextInvoiceNumber();
             }
 
             // Create invoice
@@ -210,6 +230,8 @@ class POSController extends Controller
                 'balance_due' => $totalAmount,
             ]);
 
+            $totalCostOfGoodsSold = 0;
+
             // Create line items
             foreach ($items as $itemData) {
                 $item = Item::findOrFail($itemData['item_id']);
@@ -226,12 +248,89 @@ class POSController extends Controller
                     'tax_rate' => $taxRate,
                     'tax_amount' => $lineTaxAmount,
                 ]);
+
+                // Handle inventory deduction and COGS calculation
+                if ($item->isInventoryItem()) {
+                    // Calculate cost for COGS before inventory update
+                    $lineItemCost = $item->cost * $itemData['quantity'];
+                    $totalCostOfGoodsSold += $lineItemCost;
+
+                    // Record inventory sale using InventoryService
+                    $description = "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name}";
+                    InventoryService::recordSale(
+                        $item,
+                        $itemData['quantity'],
+                        'invoice',
+                        $invoice->id,
+                        $invoice->date,
+                        $description
+                    );
+                }
             }
 
             // Calculate totals (in case Invoice model has a calculateTotals method)
             if (method_exists($invoice, 'calculateTotals')) {
                 $invoice->calculateTotals();
                 $invoice->refresh();
+            }
+
+            // Double-Entry Accounting
+            // Get required accounts
+            $accountsReceivable = Account::where('account_name', 'Accounts Receivable')->first();
+            $salesRevenue = Account::where('account_name', 'Sales Revenue')->first();
+            $cogsAccount = Account::where('account_name', 'Cost of Goods Sold')->first();
+            $inventoryAccount = Account::where('account_name', 'Inventory')->first();
+
+            if (!$accountsReceivable || !$salesRevenue || !$cogsAccount || !$inventoryAccount) {
+                throw new \Exception('Required accounts not found. Please ensure Chart of Accounts is set up.');
+            }
+
+            // Entry 1: Record the Sale and Receivable
+            // Debit Accounts Receivable
+            $transaction1 = Transaction::create([
+                'account_id' => $accountsReceivable->id,
+                'type' => 'debit',
+                'amount' => $invoice->total_amount,
+                'description' => "Invoice #{$invoice->invoice_no} - Sale to {$invoice->customer->name} (POS)",
+                'transaction_date' => $invoice->date,
+            ]);
+            
+            // Create Journal Entry: Debit AR, Credit Sales Revenue
+            Journal::create([
+                'transaction_id' => $transaction1->id,
+                'debit_account_id' => $accountsReceivable->id,
+                'credit_account_id' => $salesRevenue->id,
+                'amount' => $invoice->total_amount,
+                'date' => $invoice->date,
+            ]);
+
+            // Update account balances
+            $accountsReceivable->increment('current_balance', $invoice->total_amount);
+            $salesRevenue->increment('current_balance', $invoice->total_amount);
+
+            // Entry 2: Record Cost of Goods Sold and Inventory Reduction
+            if ($totalCostOfGoodsSold > 0) {
+                // Debit Cost of Goods Sold
+                $transaction2 = Transaction::create([
+                    'account_id' => $cogsAccount->id,
+                    'type' => 'debit',
+                    'amount' => $totalCostOfGoodsSold,
+                    'description' => "Invoice #{$invoice->invoice_no} - Cost of Goods Sold (POS)",
+                    'transaction_date' => $invoice->date,
+                ]);
+                
+                // Create Journal Entry: Debit COGS, Credit Inventory
+                Journal::create([
+                    'transaction_id' => $transaction2->id,
+                    'debit_account_id' => $cogsAccount->id,
+                    'credit_account_id' => $inventoryAccount->id,
+                    'amount' => $totalCostOfGoodsSold,
+                    'date' => $invoice->date,
+                ]);
+
+                // Update account balances
+                $cogsAccount->increment('current_balance', $totalCostOfGoodsSold);
+                $inventoryAccount->decrement('current_balance', $totalCostOfGoodsSold);
             }
 
             DB::commit();

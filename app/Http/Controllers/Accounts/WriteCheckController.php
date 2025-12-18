@@ -18,32 +18,12 @@ class WriteCheckController extends Controller
      */
     public function index()
     {
-        // Get bank accounts (sub-accounts of Cash and Cash Equivalents)
-        $cashAccount = Account::where('account_name', 'LIKE', '%Cash%')
-            ->orWhere('account_name', 'LIKE', '%Cash Equivalents%')
-            ->whereNull('parent_id')
-            ->first();
-
-        $bankAccounts = collect();
-        if ($cashAccount) {
-            $bankAccounts = Account::where('parent_id', $cashAccount->id)
-                ->where('is_active', true)
-                ->orderBy('account_name')
-                ->get();
-        } else {
-            // Fallback: get all Asset accounts that might be bank accounts
-            $bankAccounts = Account::where('account_type', Account::ASSET)
-                ->whereNotNull('parent_id')
-                ->where('is_active', true)
-                ->where(function($query) {
-                    $query->where('account_name', 'LIKE', '%Bank%')
-                          ->orWhere('account_name', 'LIKE', '%Cash%')
-                          ->orWhere('account_name', 'LIKE', '%Checking%')
-                          ->orWhere('account_name', 'LIKE', '%Savings%');
-                })
-                ->orderBy('account_name')
-                ->get();
-        }
+        // Get bank accounts (account_type = 'Bank' and is a sub-account)
+        $bankAccounts = Account::where('account_type', Account::BANK)
+            ->whereNotNull('parent_id')
+            ->where('is_active', true)
+            ->orderBy('account_name')
+            ->get();
 
         // Get suppliers/vendors for Pay To The Order Of
         $suppliers = Supplier::where('is_active', true)

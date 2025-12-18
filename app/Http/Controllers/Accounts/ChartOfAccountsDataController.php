@@ -62,6 +62,12 @@ class ChartOfAccountsDataController extends Controller
             Account::EQUITY => 'Equity',
             Account::INCOME => 'Income',
             Account::EXPENSE => 'Expenses',
+            Account::BANK => 'Bank',
+            Account::ACCOUNTS_RECEIVABLE => 'Accounts Receivable',
+            Account::ACCOUNTS_PAYABLE => 'Accounts Payable',
+            Account::OTHER_CURRENT_ASSET => 'Other Current Asset',
+            Account::OTHER_CURRENT_LIABILITY => 'Other Current Liability',
+            Account::COST_OF_GOODS_SOLD => 'Cost of Goods Sold',
         ];
 
         foreach ($accountTypes as $typeKey => $typeName) {

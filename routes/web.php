@@ -219,6 +219,15 @@ Route::middleware('auth')->group(function () {
         'destroy' => 'payments.web.destroy',
     ]);
     Route::get('purchase-orders/{purchaseOrder}/payments/create', [PaymentController::class, 'createForPurchaseOrder'])->name('purchase-orders.web.payments.create');
+    
+    // Customer Payment (Receive Payment)
+    Route::get('customer-payment', [\App\Http\Controllers\Payments\CustomerPaymentController::class, 'index'])->name('customer-payment.index');
+    Route::post('customer-payment/invoices', [\App\Http\Controllers\Payments\CustomerPaymentController::class, 'getCustomerInvoices'])->name('customer-payment.invoices');
+    Route::post('customer-payment', [\App\Http\Controllers\Payments\CustomerPaymentController::class, 'store'])->name('customer-payment.store');
+
+    // Record Deposit
+    Route::get('record-deposit', [\App\Http\Controllers\Payments\RecordDepositController::class, 'index'])->name('record-deposit.index');
+    Route::post('record-deposit', [\App\Http\Controllers\Payments\RecordDepositController::class, 'store'])->name('record-deposit.store');
 });
 
 // Invoice Management Routes (Protected by authentication)
@@ -282,6 +291,11 @@ Route::middleware('auth')->group(function () {
     // Balance Sheet and Income Statement Routes - MUST come before resource routes
     Route::get('accounts/reports/balance-sheet', [BalanceSheetController::class, 'index'])->name('accounts.reports.balance-sheet');
     Route::get('accounts/reports/income-statement', [IncomeStatementController::class, 'index'])->name('accounts.reports.income-statement');
+    Route::get('accounts/reports/trial-balance', [\App\Http\Controllers\Accounts\TrialBalanceController::class, 'index'])->name('accounts.reports.trial-balance');
+    Route::get('accounts/reports/cash-flow', [\App\Http\Controllers\Accounts\CashFlowStatementController::class, 'index'])->name('accounts.reports.cash-flow');
+    Route::get('accounts/reports/ar-aging', [\App\Http\Controllers\Accounts\ARAgingController::class, 'index'])->name('accounts.reports.ar-aging');
+    Route::get('accounts/reports/customer-balance', [\App\Http\Controllers\Accounts\CustomerBalanceController::class, 'index'])->name('accounts.reports.customer-balance');
+    Route::get('accounts/reports/vendor-balance', [\App\Http\Controllers\Accounts\VendorBalanceController::class, 'index'])->name('accounts.reports.vendor-balance');
 
     // Write Check Routes - MUST come before resource routes
     Route::get('accounts/write-check', [\App\Http\Controllers\Accounts\WriteCheckController::class, 'index'])->name('accounts.write-check.index');
@@ -336,6 +350,16 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/income-summary', [ReportsController::class, 'incomeSummary'])->name('reports.income-summary');
     Route::get('reports/item-profitability', [ReportsController::class, 'itemProfitability'])->name('reports.item-profitability');
     Route::get('reports/export', [ReportsController::class, 'export'])->name('reports.export');
+
+    // Inventory Reports
+    Route::get('reports/inventory/valuation-summary', [\App\Http\Controllers\Web\InventoryReportsController::class, 'valuationSummary'])->name('reports.inventory.valuation-summary');
+    Route::get('reports/inventory/valuation-detail', [\App\Http\Controllers\Web\InventoryReportsController::class, 'valuationDetail'])->name('reports.inventory.valuation-detail');
+    Route::get('reports/inventory/product-service-list', [\App\Http\Controllers\Web\InventoryReportsController::class, 'productServiceList'])->name('reports.inventory.product-service-list');
+    Route::get('reports/inventory/stock-on-hand', [\App\Http\Controllers\Web\InventoryReportsController::class, 'stockOnHand'])->name('reports.inventory.stock-on-hand');
+    Route::get('reports/inventory/stock-movement', [\App\Http\Controllers\Web\InventoryReportsController::class, 'stockMovement'])->name('reports.inventory.stock-movement');
+    Route::get('reports/inventory/low-stock', [\App\Http\Controllers\Web\InventoryReportsController::class, 'lowStock'])->name('reports.inventory.low-stock');
+    Route::get('reports/inventory/sales-by-item', [\App\Http\Controllers\Web\InventoryReportsController::class, 'salesByItem'])->name('reports.inventory.sales-by-item');
+    Route::get('reports/inventory/purchases-by-item', [\App\Http\Controllers\Web\InventoryReportsController::class, 'purchasesByItem'])->name('reports.inventory.purchases-by-item');
 });
 
 // Health check route

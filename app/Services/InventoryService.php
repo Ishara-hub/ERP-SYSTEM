@@ -49,15 +49,15 @@ class InventoryService
     /**
      * Record inventory sale (for Invoice items).
      */
-    public static function recordSale($item, $quantity, $sourceDocument, $sourceDocumentId, $date = null, $description = null)
+    public static function recordSale($item, $quantity, $sourceDocument, $sourceDocumentId, $date = null, $description = null, $allowNegative = true)
     {
         // Only process inventory items
         if (!in_array($item->item_type, [Item::INVENTORY_PART, Item::INVENTORY_ASSEMBLY])) {
             return null;
         }
         
-        // Check if sufficient quantity available
-        if ($item->on_hand < $quantity) {
+        // Check if sufficient quantity available (only if not allowing negative)
+        if (!$allowNegative && $item->on_hand < $quantity) {
             throw new \Exception("Insufficient inventory for {$item->item_name}. Available: {$item->on_hand}, Required: {$quantity}");
         }
         

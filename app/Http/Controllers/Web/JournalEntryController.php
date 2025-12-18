@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\GeneralJournal;
 use App\Models\JournalEntryLine;
 use App\Models\Account;
+use App\Models\Transaction;
+use App\Models\Journal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -124,6 +126,7 @@ class JournalEntryController extends Controller
                 'created_by' => Auth::id(),
             ]);
 
+            $lineTransactions = [];
             foreach ($entries as $entry) {
                 JournalEntryLine::create([
                     'journal_id' => $journal->id,
@@ -132,6 +135,72 @@ class JournalEntryController extends Controller
                     'credit' => $entry['credit'],
                     'description' => $entry['description'],
                 ]);
+
+                // Create Transaction record for each line
+                $type = $entry['debit'] > 0 ? 'debit' : 'credit';
+                $amount = $entry['debit'] > 0 ? $entry['debit'] : $entry['credit'];
+                
+                $transactionDescription = ($journal->reference ? "[" . $journal->reference . "] " : "") . ($entry['description'] ?: $request->description);
+                
+                $transaction = Transaction::create([
+                    'account_id' => $entry['account_id'],
+                    'type' => $type,
+                    'amount' => $amount,
+                    'description' => $transactionDescription,
+                    'transaction_date' => $request->transaction_date,
+                ]);
+
+                $lineTransactions[] = [
+                    'account_id' => $entry['account_id'],
+                    'type' => $type,
+                    'amount' => $amount,
+                    'transaction_id' => $transaction->id
+                ];
+
+                // Update Account Balance
+                $account = Account::find($entry['account_id']);
+                if ($account) {
+                    $normalBalance = $this->getNormalBalance($account->account_type);
+                    if (($type === 'debit' && $normalBalance === 'debit') || ($type === 'credit' && $normalBalance === 'credit')) {
+                        $account->increment('current_balance', $amount);
+                    } else {
+                        $account->decrement('current_balance', $amount);
+                    }
+                }
+            }
+
+            // Create Journal Pairs (Double-Entry Linking)
+            $debits = array_filter($lineTransactions, fn($t) => $t['type'] === 'debit');
+            $credits = array_filter($lineTransactions, fn($t) => $t['type'] === 'credit');
+            
+            // Simple Pairing Algorithm
+            reset($credits);
+            foreach ($debits as $debit) {
+                $remainingDebit = $debit['amount'];
+                while ($remainingDebit > 0.001) {
+                    $creditKey = key($credits);
+                    if ($creditKey === null) break;
+                    
+                    $credit = &$credits[$creditKey];
+                    $amountToPair = min($remainingDebit, $credit['amount']);
+                    
+                    if ($amountToPair > 0) {
+                        Journal::create([
+                            'transaction_id' => $debit['transaction_id'],
+                            'debit_account_id' => $debit['account_id'],
+                            'credit_account_id' => $credit['account_id'],
+                            'amount' => $amountToPair,
+                            'date' => $request->transaction_date,
+                        ]);
+                        
+                        $remainingDebit -= $amountToPair;
+                        $credit['amount'] -= $amountToPair;
+                    }
+                    
+                    if ($credit['amount'] < 0.001) {
+                        next($credits);
+                    }
+                }
             }
 
             DB::commit();
@@ -142,6 +211,18 @@ class JournalEntryController extends Controller
             return back()->withInput()
                 ->withErrors(['error' => 'Failed to save journal entry: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Get normal balance for account type
+     */
+    private function getNormalBalance(string $accountType): string
+    {
+        return match($accountType) {
+            Account::ASSET, Account::EXPENSE => 'debit',
+            Account::LIABILITY, Account::EQUITY, Account::INCOME => 'credit',
+            default => 'debit'
+        };
     }
 
     /**
